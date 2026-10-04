@@ -26,6 +26,14 @@ function handoffPrompt(file) {
 // Il file di passaggio per la sessione in corso, atteso dopo il riassunto
 let handoffFile = null
 
+// Avvia il passaggio a una nuova chat: il riassunto va in un file, il resto lo fa turn.complete
+async function startHandoff($) {
+  const id = await $.session.id()
+  handoffFile = '~/.claude/handoffs/' + id + '.md'
+  $.ui.toast('Riassunto in corso, poi la chat riparte pulita')
+  await $.prompt.submit({ text: handoffPrompt(handoffFile) })
+}
+
 // Verde finché c'è margine, rosso quando la cache sta per scadere
 function leftColor(minutes) {
   if (minutes > 20) return 'green'
@@ -34,6 +42,27 @@ function leftColor(minutes) {
 }
 
 export function register(on) {
+  // Gli stessi servizi come comandi, per le superfici che non disegnano la banda
+  on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'cache', description: 'Quanto resta della prompt cache' })
+    await $.command.register({ name: 'nuova', description: 'Riassume e riparte da una chat pulita' })
+    return next(e)
+  })
+
+  on('command.run', { command: 'cache' }, async ($) => {
+    if (lastAt === null) return { text: 'cache · in attesa della prima richiesta' }
+    const t = await $.clock.now()
+    const leftMs = Math.max(0, TTL_MS - (t - lastAt))
+    if (leftMs === 0) return { text: 'cache scaduta: la prossima richiesta la riscrive' }
+    const minutes = Math.ceil(leftMs / 60000)
+    return { text: 'cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta' }
+  })
+
+  on('command.run', { command: 'nuova' }, async ($) => {
+    void startHandoff($)
+    return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
+  })
+
   // Dopo il riassunto: svuota la chat e riparte dal file. Il comando va in coda, non si attende dentro il turno
   on('turn.complete', ($, e, next) => {
     if (!e.agentId && handoffFile) {
@@ -80,12 +109,7 @@ export function register(on) {
           key: 'fresh',
           label: 'Nuova chat',
           hotkey: 'n',
-          onPress: async () => {
-            const id = await $.session.id()
-            handoffFile = '~/.claude/handoffs/' + id + '.md'
-            $.ui.toast('Riassunto in corso, poi la chat riparte pulita')
-            await $.prompt.submit({ text: handoffPrompt(handoffFile) })
-          },
+          onPress: () => startHandoff($),
         }),
       ],
     })

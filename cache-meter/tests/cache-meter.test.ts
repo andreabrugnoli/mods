@@ -101,3 +101,13 @@ test('il bottone Commit e push invia il prompt di commit', async ($, on) => {
   await ui.press({ key: 'commit' })
   expect(sent.some((t) => t.includes('git push'))).toBe(true)
 })
+
+test('/cache risponde prima e dopo la prima richiesta', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  stubStep(on)
+  const before = await $.command.run({ command: 'cache' })
+  expect(before.text).toContain('in attesa')
+  await runStep($)
+  const after = await $.command.run({ command: 'cache' })
+  expect(after.text).toContain('60 min rimasti')
+})
