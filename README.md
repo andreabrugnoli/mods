@@ -2,15 +2,17 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-%E2%89%A5_2.1.287-d97757?style=flat)](https://code.claude.com/docs/en/plugins/mods/overview)
-[![Mods](https://img.shields.io/badge/Mods-4-3178c6?style=flat)](#le-quattro-mod)
+[![Mods](https://img.shields.io/badge/Mods-5-3178c6?style=flat)](#le-cinque-mod)
 
 **claude-code-mods** è un marketplace di mod per Claude Code che ti permette di aggiungere all'interfaccia una barra della prompt cache, i prossimi passi a fine turno, un pannello di bottoni rapidi e il replay delle modifiche. Ogni mod è un plugin indipendente, installabile singolarmente con un comando.
 
 ---
 
-## Le quattro mod
+## Le cinque mod
 
-**⏳ cache-meter** — una riga sopra il prompt con una barra che si svuota nel tempo: indica quanto resta dell'ora di prompt cache dall'ultima richiesta della conversazione principale. Verde oltre i 20 minuti, gialla oltre i 5, rossa sotto; allo scadere segnala che la richiesta successiva riscriverà la cache. Le richieste dei subagent non rinnovano la barra, perché usano una cache separata. Sotto la barra due bottoni: **Commit e push** (tasto `g`) fa commit e push sul branch corrente; **Nuova chat** (tasto `n`) fa scrivere al modello un riassunto di ripartenza in `~/.claude/handoffs/`, svuota la chat con `/clear` e riparte da quel file, così il contesto non si trascina e la cache si riscrive una volta sola. Entrambi i bottoni inviano un prompt e consumano token; spariscono mentre il modello lavora. Dove la banda non viene disegnata (ad esempio l'app su iPad) restano i comandi `/cache`, che mostra i minuti rimasti, e `/nuova`, che avvia il passaggio a una chat pulita.
+**⏳ cache-meter** — una riga sopra il prompt con una barra che si svuota nel tempo: indica quanto resta dell'ora di prompt cache dall'ultima richiesta della conversazione principale. Verde oltre i 20 minuti, gialla oltre i 5, rossa sotto; allo scadere segnala che la richiesta successiva riscriverà la cache. Le richieste dei subagent non rinnovano la barra, perché usano una cache separata. Sotto la barra una riga con branch, file modificati e commit da pubblicare (letta da git, solo dove `$.process` esiste: nel cloud non compare) e i bottoni: **Commit e push** (tasto `g`) fa commit e push sul branch corrente; **Push** (tasto `p`) compare solo quando non ci sono modifiche da committare ma ci sono commit da pubblicare, e fa `git push` direttamente, senza token; **Nuova chat** (tasto `n`) fa scrivere al modello un riassunto di ripartenza in `~/.claude/handoffs/`, svuota la chat con `/clear` e riparte da quel file, così il contesto non si trascina e la cache si riscrive una volta sola. Commit e Nuova chat inviano un prompt e consumano token; spariscono mentre il modello lavora. Dove la banda non viene disegnata (ad esempio l'app su iPad) restano i comandi `/cache`, che mostra i minuti rimasti, `/push`, che pubblica i commit, e `/nuova`, che avvia il passaggio a una chat pulita.
+
+**📒 registro-scritture** — a fine turno elenca tutto ciò che il turno ha scritto fuori dalla repo: Notion, Postpickr, Spreaker, Gmail, Calendar, Drive, `git push`, `gh`, `curl -X POST` e gli script con `--applica` o `--elimina`. Ogni riga ha servizio, azione, bersaglio, un link `apri` se la risposta ne contiene uno, e una croce rossa se la chiamata è fallita o negata. Le letture non compaiono. Il registro sparisce all'inizio del turno successivo. Funziona anche nelle sessioni cloud perché non usa processi locali.
 
 **➡️ next-steps** — a fine turno propone sopra il prompt due bottoni con i prossimi passi più naturali della conversazione, più un terzo bottone Replay. Premendo un passo, il prompt corrispondente viene inviato come se lo avessi scritto tu. I passi sono generati con una richiesta al modello a ogni fine turno, che consuma token.
 
@@ -41,6 +43,7 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
 
    ```bash
    claude plugin install cache-meter@andrea-mods
+   claude plugin install registro-scritture@andrea-mods
    claude plugin install next-steps@andrea-mods
    claude plugin install quick-buttons@andrea-mods
    claude plugin install replay-theater@andrea-mods

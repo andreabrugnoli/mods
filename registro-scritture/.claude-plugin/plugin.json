@@ -1,0 +1,6 @@
+{
+  "name": "registro-scritture",
+  "version": "0.1.0",
+  "description": "A fine turno elenca tutto ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push) con link e segnalazione degli errori",
+  "author": { "name": "Andrea Brugnoli" }
+}

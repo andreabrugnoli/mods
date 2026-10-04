@@ -111,3 +111,30 @@ test('/cache risponde prima e dopo la prima richiesta', async ($, on) => {
   const after = await $.command.run({ command: 'cache' })
   expect(after.text).toContain('60 min rimasti')
 })
+
+// Dove git non è raggiungibile (le sessioni cloud non hanno $.process) la banda resta quella di prima
+test('senza git la banda mostra Commit e Nuova chat e nessuna riga della repo', async ($, on) => {
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Button', key: 'commit' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'fresh' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'push' })).toBeUndefined()
+})
+
+test('/push senza git chiede il push al modello', async ($, on) => {
+  const sent: string[] = []
+  on('prompt.submit', async (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: 'ok' }))
+  const out = await $.command.run({ command: 'push' })
+  expect(out.text).toContain('Push avviato')
+  // Il prompt parte a fine turno, non dentro il comando
+  expect(sent).toEqual([])
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })
+  await new Promise((r) => setTimeout(r, 20))
+  expect(sent.some((t) => t.includes('git push'))).toBe(true)
+})

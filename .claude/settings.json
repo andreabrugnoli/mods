@@ -1,10 +1,14 @@
 {
   "extraKnownMarketplaces": {
     "andrea-mods": {
-      "source": { "source": "github", "repo": "andreabrugnoli/mods" }
+      "source": {
+        "source": "github",
+        "repo": "andreabrugnoli/mods"
+      }
     }
   },
   "enabledPlugins": {
-    "cache-meter@andrea-mods": true
+    "cache-meter@andrea-mods": true,
+    "registro-scritture@andrea-mods": true
   }
 }
