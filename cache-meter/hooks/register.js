@@ -29,6 +29,15 @@ let turnOut = 0
 // Quanta parte dell'ultima richiesta è stata letta dalla cache, da 0 a 100
 let cacheReadPct = null
 
+// L'istante in cui è cominciata la sessione, ripreso dall'archivio se è la stessa sessione
+let startedAt = null
+
+// Durata in forma breve: 45 min, 2h 14m
+function duration(ms) {
+  const minutes = Math.max(0, Math.floor(ms / 60000))
+  return minutes < 60 ? minutes + ' min' : Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm'
+}
+
 // Token in forma breve: 950, 12k, 1,2M
 function short(n) {
   const one = (x) => x.toFixed(1).replace('.', ',').replace(/,0$/, '')
@@ -74,6 +83,7 @@ function usageLines() {
   if (usage) lines.push('contesto · ' + usage.percent + '% (' + short(usage.tokens) + ' su ' + short(usage.window) + ')' + (usage.percent > CONTEXT_BAD ? ', conviene /nuova' : ''))
   if (lastTurn) lines.push('ultimo turno · ' + (lastTurn.usd === null ? '' : dollars(lastTurn.usd) + ' · ') + short(lastTurn.fresh) + ' token nuovi, ' + short(lastTurn.out) + ' generati')
   if (usage && usage.usd !== undefined) lines.push('sessione · ' + dollars(usage.usd))
+  if (startedAt !== null) lines.push('sessione · ' + duration(Math.max(0, now - startedAt)))
   if (cacheReadPct !== null) lines.push('cache letta · ' + cacheReadPct + '% dell\'ultima richiesta')
   return lines
 }
@@ -170,6 +180,8 @@ export function register(on) {
     try {
       const saved = await $.store.get('last')
       const t = await $.clock.now()
+      const started = await $.store.get('started')
+      if (started && started.id === (await $.session.id())) startedAt = started.at
       if (saved && saved.id === (await $.session.id()) && t - saved.at < TTL_MS) {
         lastAt = saved.at
         now = t
@@ -249,6 +261,12 @@ export function register(on) {
       const total = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
       cacheReadPct = total > 0 ? Math.round((u.cache_read_input_tokens / total) * 100) : null
       lastAt = now = await $.clock.now()
+      if (startedAt === null) {
+        startedAt = lastAt
+        try {
+          await $.store.set('started', { id: await $.session.id(), at: startedAt })
+        } catch {}
+      }
       startTicking($)
       try {
         await $.store.set('last', { id: await $.session.id(), at: lastAt })
@@ -358,6 +376,7 @@ export function register(on) {
         }),
       )
     }
+    if (startedAt !== null) secondary.push(dim('sessione ' + duration(Math.max(0, now - startedAt))))
     if (cacheReadPct !== null) {
       secondary.push(Box({ flexDirection: 'row', children: [dim('cache letta '), paint(cacheReadPct + '%', cacheColor(cacheReadPct))] }))
     }

@@ -1,6 +1,0 @@
-{
-  "name": "freno",
-  "version": "0.1.0",
-  "description": "Prima di un'azione distruttiva o che pubblica verso l'esterno chiede cosa fare: esegui, prova a secco o annulla",
-  "author": { "name": "Andrea Brugnoli" }
-}

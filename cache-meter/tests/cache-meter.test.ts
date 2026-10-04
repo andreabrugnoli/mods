@@ -208,3 +208,16 @@ test('senza misure dal motore la riga del contesto non compare', async ($, on) =
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'contesto ' })).toBeUndefined()
 })
+
+test('la durata della sessione cresce col tempo e compare anche in /cache', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await clock.advance(134 * MINUTE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'sessione 2h 14m' })).toBeDefined()
+  await ui.unmount()
+  const out = await $.command.run({ command: 'cache' })
+  expect(out.text).toContain('sessione · 2h 14m')
+})
