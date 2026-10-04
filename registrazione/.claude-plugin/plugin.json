@@ -1,0 +1,14 @@
+{
+  "name": "registrazione",
+  "version": "0.1.0",
+  "description": "Modalità registrazione: nasconde sullo schermo chiavi API, dati personali e importi mentre registri un tutorial o un corso (/rec, /rec strict, /rec off)",
+  "author": { "name": "Andrea Brugnoli" },
+  "userConfig": {
+    "parole": {
+      "type": "string",
+      "title": "Parole da nascondere",
+      "description": "Nomi di clienti, aziende o progetti da oscurare durante la registrazione, separati da virgola",
+      "default": ""
+    }
+  }
+}

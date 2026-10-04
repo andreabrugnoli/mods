@@ -5,7 +5,7 @@
     "url": "https://github.com/andreabrugnoli"
   },
   "metadata": {
-    "description": "Mod per Claude Code: barra della prompt cache con contesto e costo, stato della repo e registro delle scritture esterne"
+    "description": "Mod per Claude Code: barra della prompt cache con contesto e costo, stato della repo, registro delle scritture esterne e modalità registrazione"
   },
   "plugins": [
     {
@@ -27,6 +27,11 @@
       "name": "lezioni",
       "source": "./lezioni",
       "description": "Raccoglie gli inciampi della sessione e a richiesta propone come evitare che si ripetano"
+    },
+    {
+      "name": "registrazione",
+      "source": "./registrazione",
+      "description": "Modalità registrazione: nasconde a schermo chiavi API, dati personali, parole scelte e importi mentre registri tutorial o corsi"
     }
   ]
 }
