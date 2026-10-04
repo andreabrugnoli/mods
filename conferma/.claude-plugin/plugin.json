@@ -1,0 +1,6 @@
+{
+  "name": "conferma",
+  "version": "0.1.0",
+  "description": "Quando Claude chiude con una proposta o una domanda di conferma, mostra il passaggio e i bottoni Sì, procedi e No, fermati",
+  "author": { "name": "Andrea Brugnoli" }
+}

@@ -2,17 +2,21 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-%E2%89%A5_2.1.287-d97757?style=flat)](https://code.claude.com/docs/en/plugins/mods/overview)
-[![Mods](https://img.shields.io/badge/Mods-2-3178c6?style=flat)](#le-due-mod)
+[![Mods](https://img.shields.io/badge/Mods-4-3178c6?style=flat)](#le-quattro-mod)
 
 Un marketplace di mod per Claude Code, pensato per capire e controllare cosa consuma una sessione: barra della prompt cache, contesto occupato, costo del turno, durata della sessione, stato della repo e registro di ciò che viene scritto fuori dalla repo. Ogni mod è un plugin indipendente, installabile singolarmente con un comando.
 
 ---
 
-## Le due mod
+## Le quattro mod
 
-**⏳ cache-meter** — una riga sopra il prompt con una barra che si svuota nel tempo: indica quanto resta dell'ora di prompt cache dall'ultima richiesta della conversazione principale. Verde oltre i 20 minuti, gialla oltre i 5, rossa sotto; allo scadere segnala che la richiesta successiva riscriverà la cache. Le richieste dei subagent non rinnovano la barra, perché usano una cache separata. Sulla stessa riga della cache, a destra, il `contesto`, il turno e la cache letta: la riga va a capo da sola solo quando manca lo spazio. Il contesto: (barra e percentuale della finestra, verde fino al 60%, gialla fino all'80%, rossa oltre, con il suggerimento Nuova chat), `sessione` (durata dall'inizio della sessione, ad esempio `2h 14m`), `turno` (costo in dollari dell'ultimo turno, giallo da 0,50, più i token pagati interi e quelli generati dal modello) e `cache letta` (quota dell'ultima richiesta servita dalla cache: verde da 80%, gialla da 50%, rossa sotto). Le cifre vengono dal motore (`session.measure`), quindi non costano token; dove il motore non le riporta la riga non compare. Poi una riga con branch, file modificati e commit da pubblicare (letta da git, solo dove `$.process` esiste: nel cloud non compare) e i bottoni: **Commit e push** (tasto `g`) fa commit e push sul branch corrente; **Push** (tasto `p`) compare solo quando non ci sono modifiche da committare ma ci sono commit da pubblicare, e fa `git push` direttamente, senza token; **Nuova chat** (tasto `n`) fa scrivere al modello un riassunto di ripartenza in `~/.claude/handoffs/`, svuota la chat con `/clear` e riparte da quel file, così il contesto non si trascina e la cache si riscrive una volta sola. Commit e Nuova chat inviano un prompt e consumano token; spariscono mentre il modello lavora. Dove la banda non viene disegnata (ad esempio l'app su iPad) restano i comandi `/cache`, che mostra i minuti rimasti e le stesse cifre di contesto, turno e cache letta, `/push`, che pubblica i commit, e `/nuova`, che avvia il passaggio a una chat pulita.
+**⏳ cache-meter** — una riga sopra il prompt con una barra che si svuota nel tempo: indica quanto resta dell'ora di prompt cache dall'ultima richiesta della conversazione principale. Verde oltre i 20 minuti, gialla oltre i 5, rossa sotto; allo scadere segnala che la richiesta successiva riscriverà la cache. Le richieste dei subagent non rinnovano la barra, perché usano una cache separata. Con la cache scaduta e almeno 20k token di contesto compare un avviso rosso: il prossimo prompt riscrive tutto a prezzo pieno, e se cambi argomento conviene Nuova chat. Sulla stessa riga della cache, a destra, il `contesto`, il turno e la cache letta: la riga va a capo da sola solo quando manca lo spazio. Il contesto: (barra e percentuale della finestra, verde fino al 60%, gialla fino all'80%, rossa oltre, con il suggerimento Nuova chat), `sessione` (durata dall'inizio della sessione, ad esempio `2h 14m`), `turno` (costo in dollari dell'ultimo turno, giallo da 0,50, più i token pagati interi e quelli generati dal modello) e `cache letta` (quota dell'ultima richiesta servita dalla cache: verde da 80%, gialla da 50%, rossa sotto). Le cifre vengono dal motore (`session.measure`), quindi non costano token; dove il motore non le riporta la riga non compare. Poi una riga con branch, file modificati e commit da pubblicare (letta da git, solo dove `$.process` esiste: nel cloud non compare) e i bottoni: **Commit e push** (tasto `g`) fa commit e push sul branch corrente; **Push** (tasto `p`) compare solo quando non ci sono modifiche da committare ma ci sono commit da pubblicare, e fa `git push` direttamente, senza token; **Nuova chat** (tasto `n`) fa scrivere al modello un riassunto di ripartenza in `~/.claude/handoffs/`, svuota la chat con `/clear` e riparte da quel file, così il contesto non si trascina e la cache si riscrive una volta sola. Commit e Nuova chat inviano un prompt e consumano token; spariscono mentre il modello lavora. Dove la banda non viene disegnata (ad esempio l'app su iPad) restano i comandi `/cache`, che mostra i minuti rimasti e le stesse cifre di contesto, turno e cache letta, `/push`, che pubblica i commit, e `/nuova`, che avvia il passaggio a una chat pulita.
 
 **📒 registro-scritture** — a fine turno elenca tutto ciò che il turno ha scritto fuori dalla repo: Notion, Postpickr, Spreaker, Gmail, Calendar, Drive, `git push`, `gh`, `curl -X POST` e gli script con `--applica` o `--elimina`. Ogni riga ha servizio, azione, bersaglio, un link `apri` se la risposta ne contiene uno, e una croce rossa se la chiamata è fallita o negata. Le letture non compaiono. Il registro sparisce all'inizio del turno successivo. Riconosce dal nome i connettori più comuni (Notion, Spreaker, Postpickr, Gmail, Calendar, Drive, Vercel, Stripe, GitHub, Slack, Linear); per quelli con id opaco, che altrimenti compaiono come i primi otto caratteri dell'id, c'è l'opzione `servizi` con coppie `id=Nome` separate da virgola (nel menu di configurazione del plugin). Funziona anche nelle sessioni cloud perché non usa processi locali.
+
+**✅ conferma** — quando l'ultima risposta di Claude chiude con una proposta o una domanda di conferma (una domanda, oppure formule come "procedo", "vuoi che", "confermi"), mostra sopra il prompt il passaggio che propone e due bottoni: `Sì, procedi` e `No, fermati`. Il bottone invia la risposta come se l'avessi scritta tu. Non usa il modello: il passaggio è l'ultimo paragrafo della risposta, quindi non consuma token. Funziona anche nel cloud e da iPad.
+
+**📚 lezioni** — durante la sessione annota gli inciampi: tool che falliscono, azioni negate dal sistema di permessi e le tue correzioni ("non vedo", "hai sbagliato", "riprova"). Con almeno due inciampi compare una riga con il conteggio, le skill usate e il bottone `Proponi correzione`, che chiede a Claude di individuare la causa e proporre la modifica esatta alla skill o al file di istruzioni, senza applicare nulla. Il comando `/lezioni` elenca gli inciampi. Consuma token solo quando premi il bottone.
 
 ---
 
@@ -38,6 +42,8 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
    ```bash
    claude plugin install cache-meter@andrea-mods
    claude plugin install registro-scritture@andrea-mods
+   claude plugin install conferma@andrea-mods
+   claude plugin install lezioni@andrea-mods
    ```
 
 3. Avvia una nuova sessione con `claude`.
@@ -68,6 +74,7 @@ Su iPad la banda sopra il prompt può non essere disegnata: restano `/cache` e `
 ## Comandi disponibili
 
 - `/cache`: minuti di cache rimasti, contesto occupato, costo dell'ultimo turno e quota di cache letta.
+- `/lezioni`: gli inciampi raccolti nella sessione.
 - `/push`: pubblica i commit del branch corrente.
 - `/nuova`: riassume la sessione in un file e riparte da una chat pulita.
 
@@ -75,7 +82,7 @@ Su iPad la banda sopra il prompt può non essere disegnata: restano `/cache` e `
 
 ## Personalizzazione
 
-**Durata della cache** in `cache-meter`: la costante `TTL_MS` in `cache-meter/hooks/register.js` vale un'ora, la durata della prompt cache negli abbonamenti Claude. Se la tua cache dura 5 minuti, imposta `5 * 60 * 1000`.
+**Durata della cache** in `cache-meter`: parte da un'ora (`TTL_MS`) e si corregge da sola. Dopo una pausa di almeno 6 minuti guarda la quota di cache letta: se la cache è stata riscritta, passa a 5 minuti e lo ricorda tra le sessioni; se è stata letta, conferma l'ora.
 
 **Soglie dei colori** in `cache-meter`: `CONTEXT_WARN`, `CONTEXT_BAD`, `COST_WARN`, `CACHE_OK` e `CACHE_BAD`, in cima allo stesso file.
 
@@ -92,6 +99,8 @@ mods/
 ├── .claude-plugin/marketplace.json   # elenco delle mod installabili
 ├── cache-meter/
 ├── registro-scritture/
+├── conferma/
+├── lezioni/
 └── scripts/abilita-cloud.sh
 ```
 

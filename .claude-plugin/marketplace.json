@@ -17,6 +17,16 @@
       "name": "registro-scritture",
       "source": "./registro-scritture",
       "description": "A fine turno elenca ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push), con link e errori in rosso"
+    },
+    {
+      "name": "conferma",
+      "source": "./conferma",
+      "description": "Quando Claude chiude con una proposta mostra il passaggio e i bottoni Sì, procedi e No, fermati"
+    },
+    {
+      "name": "lezioni",
+      "source": "./lezioni",
+      "description": "Raccoglie gli inciampi della sessione e a richiesta propone come evitare che si ripetano"
     }
   ]
 }

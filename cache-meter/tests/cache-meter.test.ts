@@ -18,7 +18,7 @@ const BAND = {
 } as const
 
 // Una richiesta al modello andata a buon fine
-function stubStep(on) {
+function stubStep(on, usage = { input_tokens: 500, cache_read_input_tokens: 9000, cache_creation_input_tokens: 500 }) {
   on('turn.step', async function* ($, e) {
     yield { kind: 'text', index: 0, text: 'ok' }
     return {
@@ -30,9 +30,7 @@ function stubStep(on) {
       usage: {
         model: 'claude-test',
         output_tokens: 50,
-        input_tokens: 500,
-        cache_read_input_tokens: 9000,
-        cache_creation_input_tokens: 500,
+        ...usage,
       },
     }
   })
@@ -220,4 +218,41 @@ test('la durata della sessione cresce col tempo e compare anche in /cache', asyn
   await ui.unmount()
   const out = await $.command.run({ command: 'cache' })
   expect(out.text).toContain('sessione · 2h 14m')
+})
+
+test('dopo una pausa con la cache riscritta la durata scende a 5 minuti', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  stubStep(on, { input_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 9000 })
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  // 10 minuti dopo: la cache avrebbe retto un'ora, ma è stata riscritta, quindi dura 5 minuti
+  await clock.advance(10 * MINUTE)
+  await runStep($)
+  await clock.advance(2 * MINUTE)
+  const out = await $.command.run({ command: 'cache' })
+  expect(out.text).toContain('3 min rimasti')
+})
+
+test('dopo una pausa con la cache letta la durata resta un\'ora', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  stubStep(on)
+  await runStep($)
+  await clock.advance(10 * MINUTE)
+  await runStep($)
+  await clock.advance(2 * MINUTE)
+  const out = await $.command.run({ command: 'cache' })
+  expect(out.text).toContain('58 min rimasti')
+})
+
+test('con la cache scaduta e un contesto grande compare l\'avviso', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await $.session.measure({ context: { tokens: 120000, window: 200000, percent: 60 }, rateLimits: [], cost: { usd: 1 }, changed: ['context'] })
+  await clock.advance(61 * MINUTE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Cache scaduta · il prossimo prompt riscrive 120k token' })).toBeDefined()
 })

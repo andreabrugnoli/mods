@@ -1,5 +1,10 @@
 // Quanto dura la prompt cache dall'ultima richiesta che l'ha letta o scritta
 const TTL_MS = 60 * 60 * 1000
+// La durata breve della cache (5 minuti), e la pausa minima per capire quale delle due è in uso
+const SHORT_TTL_MS = 5 * 60 * 1000
+const GAP_MIN_MS = 6 * 60 * 1000
+// La durata in uso: parte da un'ora e si corregge da sola osservando la cache letta dopo una pausa
+let ttlMs = TTL_MS
 // Ogni quanto la barra si ridisegna da sola
 const TICK_MS = 30 * 1000
 
@@ -180,9 +185,11 @@ export function register(on) {
     try {
       const saved = await $.store.get('last')
       const t = await $.clock.now()
+      const savedTtl = await $.store.get('ttl')
+      if (savedTtl === SHORT_TTL_MS || savedTtl === TTL_MS) ttlMs = savedTtl
       const started = await $.store.get('started')
       if (started && started.id === (await $.session.id())) startedAt = started.at
-      if (saved && saved.id === (await $.session.id()) && t - saved.at < TTL_MS) {
+      if (saved && saved.id === (await $.session.id()) && t - saved.at < ttlMs) {
         lastAt = saved.at
         now = t
         startTicking($)
@@ -200,7 +207,7 @@ export function register(on) {
     const join = (first) => [first, ...extra].join('\n')
     if (lastAt === null) return { text: join('cache · in attesa della prima richiesta') }
     const t = await $.clock.now()
-    const leftMs = Math.max(0, TTL_MS - (t - lastAt))
+    const leftMs = Math.max(0, ttlMs - (t - lastAt))
     if (leftMs === 0) return { text: join('cache scaduta: la prossima richiesta la riscrive') }
     const minutes = Math.ceil(leftMs / 60000)
     return { text: join('cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta') }
@@ -260,7 +267,20 @@ export function register(on) {
       turnOut += u.output_tokens
       const total = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
       cacheReadPct = total > 0 ? Math.round((u.cache_read_input_tokens / total) * 100) : null
-      lastAt = now = await $.clock.now()
+      const t = await $.clock.now()
+      // Dopo una pausa lunga la cache letta dice quale durata ha davvero: letta = dura, riscritta = è scaduta
+      if (lastAt !== null && total >= 2000 && t - lastAt >= GAP_MIN_MS) {
+        const ratio = u.cache_read_input_tokens / total
+        const learned = ratio > 0.6 ? TTL_MS : ratio < 0.2 && t - lastAt < TTL_MS ? SHORT_TTL_MS : null
+        if (learned !== null && learned !== ttlMs) {
+          ttlMs = learned
+          $.ui.toast('Cache: durata rilevata ' + Math.round(ttlMs / 60000) + ' min')
+          try {
+            await $.store.set('ttl', ttlMs)
+          } catch {}
+        }
+      }
+      lastAt = now = t
       if (startedAt === null) {
         startedAt = lastAt
         try {
@@ -329,17 +349,19 @@ export function register(on) {
     }
 
     // La cache: una barra che si svuota e i minuti che restano
+    let isCold = false
     let cacheSeg
     if (lastAt === null) {
       cacheSeg = dim('cache · in attesa della prima richiesta')
     } else {
-      const leftMs = Math.max(0, TTL_MS - (now - lastAt))
+      const leftMs = Math.max(0, ttlMs - (now - lastAt))
       if (leftMs === 0) {
+        isCold = true
         cacheSeg = Box({ flexDirection: 'row', children: [dim('cache ' + '░'.repeat(barWidth) + ' '), paint('scaduta', 'red')] })
       } else {
         const minutes = Math.ceil(leftMs / 60000)
         const color = leftColor(minutes)
-        cacheSeg = Box({ flexDirection: 'row', children: [dim('cache '), ...bar(leftMs / TTL_MS, color), dim(' '), paint(minutes + ' min', color)] })
+        cacheSeg = Box({ flexDirection: 'row', children: [dim('cache '), ...bar(leftMs / ttlMs, color), dim(' '), paint(minutes + ' min', color)] })
       }
     }
 
@@ -386,9 +408,15 @@ export function register(on) {
     const main = Box({ flexDirection: 'row', flexWrap: 'wrap', children: joined([cacheSeg, ...others, ...secondary]) })
     const extra = null
 
+    // Cache scaduta con un contesto grande: il prossimo prompt riscrive tutto a prezzo pieno
+    const coldWarn =
+      isCold && usage && usage.tokens >= 20000
+        ? Box({ flexDirection: 'row', children: [paint('Cache scaduta · il prossimo prompt riscrive ' + short(usage.tokens) + ' token', 'red'), dim(' · se cambi argomento conviene Nuova chat')] })
+        : null
+
     return Box({
       flexDirection: 'column',
-      children: (e.props.isWorking ? [main, extra, theirs] : [main, extra, gitLine, buttons, theirs]).filter(Boolean),
+      children: (e.props.isWorking ? [main, extra, theirs] : [main, extra, coldWarn, gitLine, buttons, theirs]).filter(Boolean),
     })
   })
 }
