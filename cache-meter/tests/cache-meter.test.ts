@@ -138,3 +138,73 @@ test('/push senza git chiede il push al modello', async ($, on) => {
   await new Promise((r) => setTimeout(r, 20))
   expect(sent.some((t) => t.includes('git push'))).toBe(true)
 })
+
+const END = { answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as const
+
+// Contesto e costo come li riporta il motore a ogni misura
+async function measure($, percent: number, usd: number) {
+  await $.session.measure({
+    context: { tokens: percent * 2000, window: 200000, percent },
+    rateLimits: [],
+    cost: { usd },
+    changed: ['context', 'cost'],
+  })
+}
+
+test('la riga dei consumi mostra contesto, turno e cache letta', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    await runStep($)
+    await measure($, 62, 3.4)
+    await $.turn.complete(END)
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ type: 'Text', text: '62%' })).toBeDefined()
+    // 9000 letti su 10000 totali: 90% dalla cache
+    expect(await ui.find({ type: 'Text', text: '90%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '1k nuovi · 50 scritti' })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('oltre l\'80% di contesto la banda suggerisce Nuova chat', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await measure($, 85, 1)
+  await $.turn.complete(END)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' conviene Nuova chat' })).toBeDefined()
+})
+
+test('/cache riporta anche contesto, turno e cache letta', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('turn.complete', () => ({ text: 'ok' }))
+  await runStep($)
+  await measure($, 40, 2)
+  await $.turn.complete(END)
+  const out = await $.command.run({ command: 'cache' })
+  expect(out.text).toContain('contesto · 40% (80k su 200k)')
+  expect(out.text).toContain('cache letta · 90%')
+  expect(out.text).toContain('sessione · $2,00')
+})
+
+test('senza misure dal motore la riga del contesto non compare', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  stubStep(on)
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await $.turn.complete(END)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'contesto ' })).toBeUndefined()
+})

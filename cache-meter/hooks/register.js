@@ -10,6 +10,74 @@ let now = 0
 // Il timer che fa scorrere la barra, avviato alla prima richiesta
 let ticking = null
 
+// Soglie dei colori: contesto in percentuale, costo di un turno in dollari, cache letta in percentuale
+const CONTEXT_WARN = 60
+const CONTEXT_BAD = 80
+const COST_WARN = 0.5
+const CACHE_OK = 80
+const CACHE_BAD = 50
+
+// Il contesto e il costo letti dal motore: { percent, tokens, window, usd }, null dove non rispondono
+let usage = null
+// Il turno concluso: { usd, fresh, out }, dove "fresh" sono i token pagati interi (non letti dalla cache)
+let lastTurn = null
+// Il costo della sessione al termine del turno precedente, per sottrarlo
+let costBefore = null
+// I token del turno in corso, sommati richiesta per richiesta
+let turnFresh = 0
+let turnOut = 0
+// Quanta parte dell'ultima richiesta è stata letta dalla cache, da 0 a 100
+let cacheReadPct = null
+
+// Token in forma breve: 950, 12k, 1,2M
+function short(n) {
+  const one = (x) => x.toFixed(1).replace('.', ',').replace(/,0$/, '')
+  if (n >= 1e6) return one(n / 1e6) + 'M'
+  if (n >= 1e4) return Math.round(n / 1e3) + 'k'
+  if (n >= 1e3) return one(n / 1e3) + 'k'
+  return String(n)
+}
+
+// Dollari con due decimali e la virgola
+function dollars(n) {
+  return '$' + n.toFixed(2).replace('.', ',')
+}
+
+function contextColor(percent) {
+  return percent > CONTEXT_BAD ? 'red' : percent > CONTEXT_WARN ? 'yellow' : 'green'
+}
+
+function cacheColor(percent) {
+  return percent >= CACHE_OK ? 'green' : percent >= CACHE_BAD ? 'yellow' : 'red'
+}
+
+// Registra i cifre che il motore riporta a ogni misura: contesto e costo (la banda si ridisegna da sola)
+function applyMeasure(e) {
+  usage = e.context.percent === undefined ? usage : { percent: e.context.percent, tokens: e.context.tokens ?? 0, window: e.context.window, usd: e.cost?.usd }
+  if (e.cost && usage) usage.usd = e.cost.usd
+}
+
+// Chiude il turno: costo e token del turno appena finito, poi si riparte da zero
+function closeTurn() {
+  if (turnFresh > 0 || turnOut > 0) {
+    const usd = usage && usage.usd !== undefined && costBefore !== null ? Math.max(0, usage.usd - costBefore) : null
+    lastTurn = { usd, fresh: turnFresh, out: turnOut }
+  }
+  if (usage && usage.usd !== undefined) costBefore = usage.usd
+  turnFresh = 0
+  turnOut = 0
+}
+
+// Le stesse cifre della banda, in righe di testo per il comando /cache
+function usageLines() {
+  const lines = []
+  if (usage) lines.push('contesto · ' + usage.percent + '% (' + short(usage.tokens) + ' su ' + short(usage.window) + ')' + (usage.percent > CONTEXT_BAD ? ', conviene /nuova' : ''))
+  if (lastTurn) lines.push('ultimo turno · ' + (lastTurn.usd === null ? '' : dollars(lastTurn.usd) + ' · ') + short(lastTurn.fresh) + ' token nuovi, ' + short(lastTurn.out) + ' scritti')
+  if (usage && usage.usd !== undefined) lines.push('sessione · ' + dollars(usage.usd))
+  if (cacheReadPct !== null) lines.push('cache letta · ' + cacheReadPct + '% dell\'ultima richiesta')
+  return lines
+}
+
 // Il prompt del bottone "Commit e push"
 const COMMIT_PROMPT =
   'Esegui ora: git status, poi git add delle modifiche pertinenti, un commit con messaggio breve in italiano e git push sul branch corrente (git push -u origin <branch>). Prima di aggiungere, controlla i file: se tra le modifiche ci sono file sensibili (.env, chiavi, token, credenziali, certificati), non aggiungerli e chiedimi conferma. Se non ci sono modifiche, dillo e fermati. Non modificare altro.'
@@ -114,12 +182,14 @@ export function register(on) {
   })
 
   on('command.run', { command: 'cache' }, async ($) => {
-    if (lastAt === null) return { text: 'cache · in attesa della prima richiesta' }
+    const extra = usageLines()
+    const join = (first) => [first, ...extra].join('\n')
+    if (lastAt === null) return { text: join('cache · in attesa della prima richiesta') }
     const t = await $.clock.now()
     const leftMs = Math.max(0, TTL_MS - (t - lastAt))
-    if (leftMs === 0) return { text: 'cache scaduta: la prossima richiesta la riscrive' }
+    if (leftMs === 0) return { text: join('cache scaduta: la prossima richiesta la riscrive') }
     const minutes = Math.ceil(leftMs / 60000)
-    return { text: 'cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta' }
+    return { text: join('cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta') }
   })
 
   on('command.run', { command: 'push' }, async ($) => {
@@ -135,7 +205,10 @@ export function register(on) {
   // Dopo il riassunto: svuota la chat e riparte dal file. Il comando va in coda, non si attende dentro il turno
   on('turn.complete', async ($, e, next) => {
     // git status dura pochi millisecondi: lo si attende, così la banda è già aggiornata a fine turno
-    if (!e.agentId) await refreshGit($)
+    if (!e.agentId) {
+      await refreshGit($)
+      closeTurn()
+    }
     if (!e.agentId && handoffFile) {
       const file = handoffFile
       handoffFile = null
@@ -156,11 +229,23 @@ export function register(on) {
     return next(e)
   })
 
+  // Il motore riporta contesto e costo quando si muovono: la banda li mostra
+  on('session.measure', ($, e, next) => {
+    applyMeasure(e)
+    $.ui.invalidate('ui.render')
+    return next(e)
+  })
+
   // Una richiesta al modello rinnova la cache: l'ora riparte dal suo risultato
   on('turn.step', async function* ($, e, next) {
     const result = yield* next(e)
     // Solo la conversazione principale: i subagent hanno una cache loro
     if (!e.agentId && result.usage) {
+      const u = result.usage
+      turnFresh += u.input_tokens + u.cache_creation_input_tokens
+      turnOut += u.output_tokens
+      const total = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
+      cacheReadPct = total > 0 ? Math.round((u.cache_read_input_tokens / total) * 100) : null
       lastAt = now = await $.clock.now()
       startTicking($)
       try {
@@ -207,8 +292,50 @@ export function register(on) {
               Text(git.ahead > 0 ? { color: 'yellow', children: [git.ahead + ' da pushare'] } : { dimColor: true, children: ['0 da pushare'] }),
             ],
           })
+    // La riga dei consumi: contesto, ultimo turno, cache letta. Niente props indefinite: il colore è scelto prima
+    const paint = (text, color) => Text(color ? { color, children: [text] } : { dimColor: true, children: [text] })
+    const wide = e.props.bodyColumns >= 110
+    const parts = []
+    if (usage) {
+      const w = wide ? 12 : 6
+      const full = Math.ceil((usage.percent / 100) * w)
+      const c = contextColor(usage.percent)
+      parts.push(
+        Box({
+          flexDirection: 'row',
+          children: [
+            dim('contesto '),
+            paint('█'.repeat(full), c),
+            dim('░'.repeat(w - full) + ' '),
+            paint(usage.percent + '%', c),
+            wide && dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
+            usage.percent > CONTEXT_BAD && paint(' conviene Nuova chat', 'red'),
+          ].filter(Boolean),
+        }),
+      )
+    }
+    if (lastTurn) {
+      const hot = lastTurn.usd !== null && lastTurn.usd >= COST_WARN
+      parts.push(
+        Box({
+          flexDirection: 'row',
+          children: [
+            dim('turno '),
+            lastTurn.usd !== null && paint(dollars(lastTurn.usd), hot ? 'yellow' : null),
+            lastTurn.usd !== null && dim(' · '),
+            dim(short(lastTurn.fresh) + ' nuovi · ' + short(lastTurn.out) + ' scritti'),
+          ].filter(Boolean),
+        }),
+      )
+    }
+    if (cacheReadPct !== null) {
+      parts.push(Box({ flexDirection: 'row', children: [dim('cache letta '), paint(cacheReadPct + '%', cacheColor(cacheReadPct))] }))
+    }
+    const usageRow = parts.length
+      ? Box({ flexDirection: 'row', children: parts.flatMap((p, i) => (i ? [dim(' · '), p] : [p])) })
+      : null
     const withTheirs = (line) =>
-      Box({ flexDirection: 'column', children: e.props.isWorking ? [line, theirs].filter(Boolean) : [line, gitLine, buttons, theirs].filter(Boolean) })
+      Box({ flexDirection: 'column', children: e.props.isWorking ? [line, usageRow, theirs].filter(Boolean) : [line, usageRow, gitLine, buttons, theirs].filter(Boolean) })
 
     if (lastAt === null) return withTheirs(dim('cache · in attesa della prima richiesta'))
 

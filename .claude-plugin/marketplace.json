@@ -11,7 +11,7 @@
     {
       "name": "cache-meter",
       "source": "./cache-meter",
-      "description": "Barra della prompt cache, stato della repo e bottoni Commit, Push e Nuova chat"
+      "description": "Barra della prompt cache, contesto occupato, costo del turno, stato della repo e bottoni Commit, Push e Nuova chat"
     },
     {
       "name": "registro-scritture",
