@@ -1,16 +1,38 @@
 // Quante righe mostrare al massimo nella banda
 const MAX_ROWS = 6
 
-// Nomi leggibili dei server MCP, per id: gli id di connettore non dicono nulla a chi legge
-const SERVICES = {
-  '46dded4b-f2d2-4af7-9ae7-1db030709c49': 'Notion',
-  'notion-dynamopet': 'Notion',
-  '1ff0d358-ee8f-4832-ba13-c6e721d4279a': 'Postpickr',
-  spreaker: 'Spreaker',
-  'e14c09e8-d3bf-4f30-b839-ba795465d6b4': 'Gmail',
-  'a285c429-44b8-44f9-b44f-9c08802563f2': 'Calendar',
-  'fddf164c-988b-40b7-8e10-230200893b51': 'Drive',
-  '2c0cccdf-c9e4-4599-8288-c7436f57125a': 'Vercel',
+// Nomi leggibili dei server MCP riconosciuti dal nome; i connettori con id opaco si nominano nelle opzioni
+const KNOWN = [
+  [/notion/i, 'Notion'],
+  [/spreaker/i, 'Spreaker'],
+  [/postpickr/i, 'Postpickr'],
+  [/gmail/i, 'Gmail'],
+  [/calendar/i, 'Calendar'],
+  [/drive/i, 'Drive'],
+  [/vercel/i, 'Vercel'],
+  [/stripe/i, 'Stripe'],
+  [/github/i, 'GitHub'],
+  [/slack/i, 'Slack'],
+  [/linear/i, 'Linear'],
+]
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-/i
+
+// Dall'opzione "servizi" ("id=Nome, id=Nome") alla mappa id -> nome
+export function parseServices(text) {
+  const map = {}
+  for (const part of String(text ?? '').split(',')) {
+    const [id, ...name] = part.split('=')
+    if (id && name.length) map[id.trim()] = name.join('=').trim()
+  }
+  return map
+}
+
+// Il nome da mostrare per un server: prima le opzioni, poi il nome noto, poi l'id accorciato
+export function serviceLabel(server, custom = {}) {
+  if (custom[server]) return custom[server]
+  const known = KNOWN.find(([re]) => re.test(server))
+  if (known) return known[1]
+  return UUID.test(server) ? server.slice(0, 8) : server
 }
 
 // Un tool MCP scrive se il nome contiene un verbo di scrittura e non uno di sola lettura
@@ -31,7 +53,7 @@ function clip(text, n) {
 }
 
 // Dice se una chiamata è una scrittura esterna e la descrive, altrimenti null
-export function describe(e) {
+export function describe(e, custom = {}) {
   if (e.tool === 'Bash') {
     const cmd = e.command ?? ''
     if (/\bgit\s+push\b/.test(cmd)) return { service: 'git', action: 'push', target: clip(cmd, 60) }
@@ -46,7 +68,7 @@ export function describe(e) {
   if (READ_VERB.test(tool) || !WRITE_VERB.test(tool)) return null
   const key = TARGET_KEYS.find((k) => e[k] !== undefined && typeof e[k] !== 'object')
   return {
-    service: SERVICES[server] ?? server,
+    service: serviceLabel(server, custom),
     action: tool.replace(/^notion-/, '').replace(/_/g, ' '),
     target: key ? clip(e[key], 50) : '',
   }
@@ -64,10 +86,13 @@ export function isBad(result) {
   return /"?(error|errore|failed|unauthorized|forbidden)"?\s*[:=]/i.test(result.text ?? '')
 }
 
-export function register(on) {
+export function register(on, options) {
+  // I nomi dei connettori con id opaco, scritti dall'utente nelle opzioni
+  const custom = parseServices(options?.servizi)
+
   // Ogni chiamata: la lasciamo passare, poi annotiamo che cosa è successo
   on('tool.call', async ($, e, next) => {
-    const what = describe(e)
+    const what = describe(e, custom)
     const ran = await next(e)
     if (what && !e.agentId) {
       const denied = ran.deny !== undefined

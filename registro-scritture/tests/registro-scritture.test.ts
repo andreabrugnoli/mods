@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { parseServices, serviceLabel } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'registro-scritture',
@@ -16,9 +17,9 @@ function stubTool(on, text: string, isError = false) {
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
 }
 
-test('una scrittura su Postpickr compare a fine turno con il link', async ($, on) => {
+test('una scrittura su un connettore noto compare a fine turno con il link', async ($, on) => {
   stubTool(on, 'creato https://app.postpickr.com/post/123')
-  await $.tool.call({ tool: 'mcp__1ff0d358-ee8f-4832-ba13-c6e721d4279a__create_post', project_id: 1 })
+  await $.tool.call({ tool: 'mcp__postpickr__create_post', project_id: 1 })
   await $.turn.complete(END)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'scritto fuori dalla repo · 1 azione' })).toBeDefined()
@@ -26,9 +27,19 @@ test('una scrittura su Postpickr compare a fine turno con il link', async ($, on
   expect(await ui.find({ type: 'Link' })).toBeDefined()
 })
 
+test('le opzioni nominano i connettori con id opaco', () => {
+  const custom = parseServices(' 1a2b3c4d-0000-4000-8000-000000000001 = Postpickr , abc=Notion=Team ')
+  expect(custom['1a2b3c4d-0000-4000-8000-000000000001']).toBe('Postpickr')
+  expect(custom.abc).toBe('Notion=Team')
+  expect(serviceLabel('1a2b3c4d-0000-4000-8000-000000000001', custom)).toBe('Postpickr')
+  expect(serviceLabel('1a2b3c4d-0000-4000-8000-000000000002', custom)).toBe('1a2b3c4d')
+  expect(serviceLabel('mcp-notion-x', {})).toBe('Notion')
+  expect(parseServices('')).toEqual({})
+})
+
 test('le letture non entrano nel registro', async ($, on) => {
   stubTool(on, 'ok')
-  await $.tool.call({ tool: 'mcp__46dded4b-f2d2-4af7-9ae7-1db030709c49__notion-fetch', id: 'x' })
+  await $.tool.call({ tool: 'mcp__notion__notion-fetch', id: 'x' })
   await $.turn.complete(END)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'scritto fuori dalla repo · 1 azione' })).toBeUndefined()
@@ -41,4 +52,12 @@ test('un errore è segnalato in rosso e contato', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'scritto fuori dalla repo · 1 azione · 1 da controllare' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' (errore)' })).toBeDefined()
+})
+
+test('un connettore con id opaco senza opzioni mostra l\'id accorciato', async ($, on) => {
+  stubTool(on, 'ok')
+  await $.tool.call({ tool: 'mcp__1a2b3c4d-0000-4000-8000-000000000001__create_post', project_id: 1 })
+  await $.turn.complete(END)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '1a2b3c4d · create post · 1' })).toBeDefined()
 })

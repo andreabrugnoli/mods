@@ -149,8 +149,10 @@ async function startHandoff($) {
 // Fa scorrere la barra, una volta sola
 function startTicking($) {
   ticking ??= $.clock.every(TICK_MS, async () => {
-    now = await $.clock.now()
-    $.ui.invalidate('ui.render')
+    try {
+      now = await $.clock.now()
+      $.ui.invalidate('ui.render')
+    } catch {}
   })
 }
 
@@ -259,6 +261,10 @@ export function register(on) {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Quello che disegnano le altre mod nella banda resta sotto la nostra riga
     const theirs = await next(e)
+    // L'ora si rilegge a ogni disegno: non dipende dal timer, che può fermarsi
+    try {
+      now = await $.clock.now()
+    } catch {}
     const { Box, Text, Button } = $.ui.resolve(e)
     const dim = (text) => Text({ dimColor: true, children: [text] })
     // Con lo stato di git i bottoni compaiono solo se c'è qualcosa da fare
