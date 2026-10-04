@@ -331,7 +331,7 @@ export function register(on) {
             ...bar(usage.percent / 100, c),
             dim(' '),
             paint(usage.percent + '%', c),
-            wide && dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
+            columns >= 140 && dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
             usage.percent > CONTEXT_BAD && paint(' · Nuova chat?', 'red'),
           ].filter(Boolean),
         }),
@@ -357,8 +357,8 @@ export function register(on) {
     }
     const joined = (list) => list.flatMap((p, i) => (i ? [dim(' · '), p] : [p]))
 
-    // Se c'è spazio tutto sta su una riga, altrimenti cache e contesto restano insieme e il resto va sotto
-    const isOneRow = columns >= 140
+    // Da 115 colonne tutto sta su una riga (il dettaglio dei token del contesto da 140), altrimenti cache e contesto restano insieme e il resto va sotto
+    const isOneRow = columns >= 115
     const main = Box({ flexDirection: 'row', children: joined([cacheSeg, ...others, ...(isOneRow ? secondary : [])]) })
     const extra = !isOneRow && secondary.length ? Box({ flexDirection: 'row', children: joined(secondary) }) : null
 
