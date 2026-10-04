@@ -74,7 +74,7 @@ Le sessioni cloud (claude.ai/code, app per iPad) non leggono le tue impostazioni
 }
 ```
 
-Lo fa per te `scripts/abilita-cloud.sh <percorso-repo> [mod ...]`, che unisce la voce alle impostazioni esistenti. Il tuo gitignore globale esclude `.claude/settings.json`: aggiungilo con `git add -f .claude/settings.json`, poi commit e push. La sessione cloud legge il file dal branch. Questa repo è privata, quindi l'accesso GitHub della sessione cloud deve includere anche `andreabrugnoli/mods`.
+Lo fa per te `scripts/abilita-cloud.sh <percorso-repo> [mod ...]`, che unisce la voce alle impostazioni esistenti. Se il tuo gitignore (anche globale) esclude `.claude/settings.json`, aggiungilo con `git add -f .claude/settings.json`, poi commit e push. La sessione cloud legge il file dal branch.
 
 Su iPad la banda sopra il prompt può non essere disegnata: restano `/cache` e `/nuova`. Lo stato (`$.store`) e i riassunti in `~/.claude/handoffs/` vivono nel contenitore della sessione e si perdono alla sua chiusura.
 
