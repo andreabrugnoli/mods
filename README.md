@@ -2,17 +2,19 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-%E2%89%A5_2.1.287-d97757?style=flat)](https://code.claude.com/docs/en/plugins/mods/overview)
-[![Mods](https://img.shields.io/badge/Mods-2-3178c6?style=flat)](#le-due-mod)
+[![Mods](https://img.shields.io/badge/Mods-3-3178c6?style=flat)](#le-tre-mod)
 
 Un marketplace di mod per Claude Code, pensato per capire e controllare cosa consuma una sessione: barra della prompt cache, contesto occupato, costo del turno, stato della repo e registro di ciò che viene scritto fuori dalla repo. Ogni mod è un plugin indipendente, installabile singolarmente con un comando.
 
 ---
 
-## Le due mod
+## Le tre mod
 
 **⏳ cache-meter** — una riga sopra il prompt con una barra che si svuota nel tempo: indica quanto resta dell'ora di prompt cache dall'ultima richiesta della conversazione principale. Verde oltre i 20 minuti, gialla oltre i 5, rossa sotto; allo scadere segnala che la richiesta successiva riscriverà la cache. Le richieste dei subagent non rinnovano la barra, perché usano una cache separata. Sulla stessa riga della cache, a destra, il `contesto`, il turno e la cache letta: la riga va a capo da sola solo quando manca lo spazio. Il contesto: (barra e percentuale della finestra, verde fino al 60%, gialla fino all'80%, rossa oltre, con il suggerimento Nuova chat), `turno` (costo in dollari dell'ultimo turno, giallo da 0,50, più i token pagati interi e quelli generati dal modello) e `cache letta` (quota dell'ultima richiesta servita dalla cache: verde da 80%, gialla da 50%, rossa sotto). Le cifre vengono dal motore (`session.measure`), quindi non costano token; dove il motore non le riporta la riga non compare. Poi una riga con branch, file modificati e commit da pubblicare (letta da git, solo dove `$.process` esiste: nel cloud non compare) e i bottoni: **Commit e push** (tasto `g`) fa commit e push sul branch corrente; **Push** (tasto `p`) compare solo quando non ci sono modifiche da committare ma ci sono commit da pubblicare, e fa `git push` direttamente, senza token; **Nuova chat** (tasto `n`) fa scrivere al modello un riassunto di ripartenza in `~/.claude/handoffs/`, svuota la chat con `/clear` e riparte da quel file, così il contesto non si trascina e la cache si riscrive una volta sola. Commit e Nuova chat inviano un prompt e consumano token; spariscono mentre il modello lavora. Dove la banda non viene disegnata (ad esempio l'app su iPad) restano i comandi `/cache`, che mostra i minuti rimasti e le stesse cifre di contesto, turno e cache letta, `/push`, che pubblica i commit, e `/nuova`, che avvia il passaggio a una chat pulita.
 
 **📒 registro-scritture** — a fine turno elenca tutto ciò che il turno ha scritto fuori dalla repo: Notion, Postpickr, Spreaker, Gmail, Calendar, Drive, `git push`, `gh`, `curl -X POST` e gli script con `--applica` o `--elimina`. Ogni riga ha servizio, azione, bersaglio, un link `apri` se la risposta ne contiene uno, e una croce rossa se la chiamata è fallita o negata. Le letture non compaiono. Il registro sparisce all'inizio del turno successivo. Riconosce dal nome i connettori più comuni (Notion, Spreaker, Postpickr, Gmail, Calendar, Drive, Vercel, Stripe, GitHub, Slack, Linear); per quelli con id opaco, che altrimenti compaiono come i primi otto caratteri dell'id, c'è l'opzione `servizi` con coppie `id=Nome` separate da virgola (nel menu di configurazione del plugin). Funziona anche nelle sessioni cloud perché non usa processi locali.
+
+**🛑 freno** — prima di un'azione che cancella o che esce verso l'esterno mostra la domanda del motore con tre risposte: `Esegui`, `Prova a secco` o `Annulla`. Frena `rm -r`, `git push --force`, `git reset --hard`, `git clean`, `git branch -D`, `drop` e `truncate`, le opzioni `--elimina`, `--delete` e `--applica` degli script, `curl -X POST/PUT/PATCH/DELETE`, `gh pr merge` e simili, più i tool MCP che cancellano (`delete`, `trash`, `remove`) o che inviano e pubblicano (`send`, `reply`, `publish`, `schedule`, `create_post`). Con `Prova a secco` il modello riceve l'istruzione di mostrare cosa verrebbe toccato (con `--dry-run` se esiste) e di chiedere di nuovo; con `Annulla` non ritenta. I comandi che contengono già `--dry-run` passano senza domanda. Nelle esecuzioni non interattive (routine, `-p`) non chiede nulla e decide il normale sistema di permessi. Funziona anche nel cloud e da iPad, perché usa il dialogo del motore.
 
 ---
 
@@ -38,6 +40,7 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
    ```bash
    claude plugin install cache-meter@andrea-mods
    claude plugin install registro-scritture@andrea-mods
+   claude plugin install freno@andrea-mods
    ```
 
 3. Avvia una nuova sessione con `claude`.
@@ -92,6 +95,7 @@ mods/
 ├── .claude-plugin/marketplace.json   # elenco delle mod installabili
 ├── cache-meter/
 ├── registro-scritture/
+├── freno/
 └── scripts/abilita-cloud.sh
 ```
 

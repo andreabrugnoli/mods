@@ -17,6 +17,11 @@
       "name": "registro-scritture",
       "source": "./registro-scritture",
       "description": "A fine turno elenca ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push), con link e errori in rosso"
+    },
+    {
+      "name": "freno",
+      "source": "./freno",
+      "description": "Prima di un'azione distruttiva o che pubblica verso l'esterno chiede: esegui, prova a secco o annulla"
     }
   ]
 }

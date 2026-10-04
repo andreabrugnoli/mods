@@ -1,0 +1,4 @@
+{
+  "description": "Modulo hooks di freno",
+  "modules": ["./register.js"]
+}
