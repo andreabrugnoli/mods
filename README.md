@@ -34,16 +34,16 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
 1. Aggiungi il marketplace a Claude Code:
 
    ```bash
-   claude plugin marketplace add DarioFontanel/claude-code-mods
+   claude plugin marketplace add andreabrugnoli/mods
    ```
 
 2. Installa le mod che ti interessano, una per comando:
 
    ```bash
-   claude plugin install cache-meter@dario-mods
-   claude plugin install next-steps@dario-mods
-   claude plugin install quick-buttons@dario-mods
-   claude plugin install replay-theater@dario-mods
+   claude plugin install cache-meter@andrea-mods
+   claude plugin install next-steps@andrea-mods
+   claude plugin install quick-buttons@andrea-mods
+   claude plugin install replay-theater@andrea-mods
    ```
 
    `next-steps` dichiara `replay-theater` come dipendenza: installandola, `replay-theater` viene installata automaticamente.
@@ -52,7 +52,7 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
 
 Verifica: apri `/plugin` — sotto i tab compare la riga con le mod attive, ad esempio `4 mods active`.
 
-Gli stessi comandi sono disponibili dall'interno di una sessione come `/plugin marketplace add` e `/plugin install`. Per provare una mod in una sola sessione senza installarla, clona la repo e avvia `claude --plugin-dir ./claude-code-mods/cache-meter`.
+Gli stessi comandi sono disponibili dall'interno di una sessione come `/plugin marketplace add` e `/plugin install`. Per provare una mod in una sola sessione senza installarla, clona la repo e avvia `claude --plugin-dir ./mods/cache-meter`.
 
 Per disattivare una mod, disabilitala o disinstallala dal tab **Installed** di `/plugin`.
 
