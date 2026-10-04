@@ -331,7 +331,7 @@ export function register(on) {
             ...bar(usage.percent / 100, c),
             dim(' '),
             paint(usage.percent + '%', c),
-            columns >= 140 && dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
+            dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
             usage.percent > CONTEXT_BAD && paint(' · Nuova chat?', 'red'),
           ].filter(Boolean),
         }),
@@ -357,10 +357,9 @@ export function register(on) {
     }
     const joined = (list) => list.flatMap((p, i) => (i ? [dim(' · '), p] : [p]))
 
-    // Da 115 colonne tutto sta su una riga (il dettaglio dei token del contesto da 140), altrimenti cache e contesto restano insieme e il resto va sotto
-    const isOneRow = columns >= 115
-    const main = Box({ flexDirection: 'row', children: joined([cacheSeg, ...others, ...(isOneRow ? secondary : [])]) })
-    const extra = !isOneRow && secondary.length ? Box({ flexDirection: 'row', children: joined(secondary) }) : null
+    // Tutto in una riga che va a capo da sola solo se manca lo spazio: le colonne di una finestra desktop non dicono quanto è larga
+    const main = Box({ flexDirection: 'row', flexWrap: 'wrap', children: joined([cacheSeg, ...others, ...secondary]) })
+    const extra = null
 
     return Box({
       flexDirection: 'column',
