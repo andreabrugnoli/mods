@@ -135,3 +135,9 @@ Designed by **[Dario Fontanel, PhD](https://dariofontanel.com/)**
 [![AI Academy](https://img.shields.io/badge/AI_Academy-E7514F?style=flat&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAzIDEgOWwxMSA2IDktNC45MVYxN2gyVjlMMTIgM3pNNSAxMy4xOFYxN2MwIDEuNjYgMy4xMyAzIDcgM3M3LTEuMzQgNy0zdi0zLjgybC03IDMuODItNy0zLjgyeiIvPjwvc3ZnPg%3D%3D)](https://www.skool.com/ai-academy-2306)
 
 Licenza: [MIT](./LICENSE) — `replay-theater` è distribuita con licenza [Apache-2.0](./replay-theater/LICENSE).
+
+---
+
+## Crediti
+
+`next-steps`, `quick-buttons` e la base di `cache-meter` e `replay-theater` vengono da [DarioFontanel/claude-code-mods](https://github.com/DarioFontanel/claude-code-mods) (licenza MIT, copyright in `LICENSE`). `registro-scritture`, lo stato della repo in `cache-meter` e lo script `abilita-cloud.sh` sono aggiunte di questa repo.

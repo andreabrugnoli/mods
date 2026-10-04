@@ -2,5 +2,5 @@
   "name": "cache-meter",
   "version": "0.5.0",
   "description": "Barra sopra il prompt che si svuota col tempo: quanto resta dell'ora di prompt cache dall'ultima richiesta, con stato della repo e bottoni Commit, Push e Nuova chat",
-  "author": { "name": "Dario Fontanel" }
+  "author": { "name": "Andrea Brugnoli" }
 }
