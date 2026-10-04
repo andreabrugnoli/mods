@@ -34,6 +34,14 @@ async function startHandoff($) {
   await $.prompt.submit({ text: handoffPrompt(handoffFile) })
 }
 
+// Fa scorrere la barra, una volta sola
+function startTicking($) {
+  ticking ??= $.clock.every(TICK_MS, async () => {
+    now = await $.clock.now()
+    $.ui.invalidate('ui.render')
+  })
+}
+
 // Verde finché c'è margine, rosso quando la cache sta per scadere
 function leftColor(minutes) {
   if (minutes > 20) return 'green'
@@ -44,6 +52,16 @@ function leftColor(minutes) {
 export function register(on) {
   // Gli stessi servizi come comandi, per le superfici che non disegnano la banda
   on('session.start', async ($, e, next) => {
+    // Un ricaricamento della mod o una ripresa della stessa sessione non azzerano la barra
+    try {
+      const saved = await $.store.get('last')
+      const t = await $.clock.now()
+      if (saved && saved.id === (await $.session.id()) && t - saved.at < TTL_MS) {
+        lastAt = saved.at
+        now = t
+        startTicking($)
+      }
+    } catch {}
     await $.command.register({ name: 'cache', description: 'Quanto resta della prompt cache' })
     await $.command.register({ name: 'nuova', description: 'Riassume e riparte da una chat pulita' })
     return next(e)
@@ -86,10 +104,10 @@ export function register(on) {
     // Solo la conversazione principale: i subagent hanno una cache loro
     if (!e.agentId && result.usage) {
       lastAt = now = await $.clock.now()
-      ticking ??= $.clock.every(TICK_MS, async () => {
-        now = await $.clock.now()
-        $.ui.invalidate('ui.render')
-      })
+      startTicking($)
+      try {
+        await $.store.set('last', { id: await $.session.id(), at: lastAt })
+      } catch {}
       $.ui.invalidate('ui.render')
     }
     return result
