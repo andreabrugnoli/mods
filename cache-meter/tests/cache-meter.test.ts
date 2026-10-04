@@ -55,8 +55,8 @@ test('la barra si svuota col tempo e una nuova richiesta la riempie', async ($, 
 
     // Appena dopo la richiesta: barra piena, un'ora davanti
     let ui = await $.ui.mount({ ...BAND, surface })
-    expect(await ui.find({ type: 'Text', text: '█'.repeat(24) })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '60 min rimasti' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '█'.repeat(12) })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '60 min' })).toBeDefined()
     // Il disegno delle altre mod resta nella banda
     expect(await ui.find({ type: 'Text', text: 'altra mod' })).toBeDefined()
     await ui.unmount()
@@ -64,8 +64,8 @@ test('la barra si svuota col tempo e una nuova richiesta la riempie', async ($, 
     // Mezz'ora dopo: metà barra
     await clock.advance(30 * MINUTE)
     ui = await $.ui.mount({ ...BAND, surface })
-    expect(await ui.find({ type: 'Text', text: '█'.repeat(12) })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '30 min rimasti' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '█'.repeat(6) })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '30 min' })).toBeDefined()
     await ui.unmount()
 
     // Passata l'ora: scaduta
@@ -109,7 +109,7 @@ test('/cache risponde prima e dopo la prima richiesta', async ($, on) => {
   expect(before.text).toContain('in attesa')
   await runStep($)
   const after = await $.command.run({ command: 'cache' })
-  expect(after.text).toContain('60 min rimasti')
+  expect(after.text).toContain('60 min')
 })
 
 // Dove git non è raggiungibile (le sessioni cloud non hanno $.process) la banda resta quella di prima
@@ -166,7 +166,7 @@ test('la riga dei consumi mostra contesto, turno e cache letta', async ($, on) =
     expect(await ui.find({ type: 'Text', text: '62%' })).toBeDefined()
     // 9000 letti su 10000 totali: 90% dalla cache
     expect(await ui.find({ type: 'Text', text: '90%' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '1k nuovi · 50 scritti' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '1k nuovi · 50 generati' })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -181,7 +181,7 @@ test('oltre l\'80% di contesto la banda suggerisce Nuova chat', async ($, on) =>
   await measure($, 85, 1)
   await $.turn.complete(END)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: ' conviene Nuova chat' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · Nuova chat?' })).toBeDefined()
 })
 
 test('/cache riporta anche contesto, turno e cache letta', async ($, on) => {

@@ -72,7 +72,7 @@ function closeTurn() {
 function usageLines() {
   const lines = []
   if (usage) lines.push('contesto · ' + usage.percent + '% (' + short(usage.tokens) + ' su ' + short(usage.window) + ')' + (usage.percent > CONTEXT_BAD ? ', conviene /nuova' : ''))
-  if (lastTurn) lines.push('ultimo turno · ' + (lastTurn.usd === null ? '' : dollars(lastTurn.usd) + ' · ') + short(lastTurn.fresh) + ' token nuovi, ' + short(lastTurn.out) + ' scritti')
+  if (lastTurn) lines.push('ultimo turno · ' + (lastTurn.usd === null ? '' : dollars(lastTurn.usd) + ' · ') + short(lastTurn.fresh) + ' token nuovi, ' + short(lastTurn.out) + ' generati')
   if (usage && usage.usd !== undefined) lines.push('sessione · ' + dollars(usage.usd))
   if (cacheReadPct !== null) lines.push('cache letta · ' + cacheReadPct + '% dell\'ultima richiesta')
   return lines
@@ -292,84 +292,79 @@ export function register(on) {
               Text(git.ahead > 0 ? { color: 'yellow', children: [git.ahead + ' da pushare'] } : { dimColor: true, children: ['0 da pushare'] }),
             ],
           })
-    // La riga dei consumi: contesto, ultimo turno, cache letta. Niente props indefinite: il colore è scelto prima
+    // Niente props indefinite: il colore è scelto prima
     const paint = (text, color) => Text(color ? { color, children: [text] } : { dimColor: true, children: [text] })
-    const wide = e.props.bodyColumns >= 110
-    const parts = []
+    const columns = e.props.bodyColumns
+    const wide = columns >= 110
+    const barWidth = wide ? 12 : 6
+
+    // Una barra piena per la parte "buona": nel contesto è lo spazio usato, nella cache il tempo che resta
+    const bar = (fraction, color) => {
+      const full = Math.min(barWidth, Math.max(0, Math.ceil(fraction * barWidth)))
+      return [paint('█'.repeat(full), color), dim('░'.repeat(barWidth - full))]
+    }
+
+    // La cache: una barra che si svuota e i minuti che restano
+    let cacheSeg
+    if (lastAt === null) {
+      cacheSeg = dim('cache · in attesa della prima richiesta')
+    } else {
+      const leftMs = Math.max(0, TTL_MS - (now - lastAt))
+      if (leftMs === 0) {
+        cacheSeg = Box({ flexDirection: 'row', children: [dim('cache ' + '░'.repeat(barWidth) + ' '), paint('scaduta', 'red')] })
+      } else {
+        const minutes = Math.ceil(leftMs / 60000)
+        const color = leftColor(minutes)
+        cacheSeg = Box({ flexDirection: 'row', children: [dim('cache '), ...bar(leftMs / TTL_MS, color), dim(' '), paint(minutes + ' min', color)] })
+      }
+    }
+
+    // Gli altri consumi, ognuno al suo posto solo se il motore ha riportato la cifra
+    const others = []
     if (usage) {
-      const w = wide ? 12 : 6
-      const full = Math.ceil((usage.percent / 100) * w)
       const c = contextColor(usage.percent)
-      parts.push(
+      others.push(
         Box({
           flexDirection: 'row',
           children: [
             dim('contesto '),
-            paint('█'.repeat(full), c),
-            dim('░'.repeat(w - full) + ' '),
+            ...bar(usage.percent / 100, c),
+            dim(' '),
             paint(usage.percent + '%', c),
             wide && dim(' ' + short(usage.tokens) + '/' + short(usage.window)),
-            usage.percent > CONTEXT_BAD && paint(' conviene Nuova chat', 'red'),
+            usage.percent > CONTEXT_BAD && paint(' · Nuova chat?', 'red'),
           ].filter(Boolean),
         }),
       )
     }
+    const secondary = []
     if (lastTurn) {
       const hot = lastTurn.usd !== null && lastTurn.usd >= COST_WARN
-      parts.push(
+      secondary.push(
         Box({
           flexDirection: 'row',
           children: [
             dim('turno '),
             lastTurn.usd !== null && paint(dollars(lastTurn.usd), hot ? 'yellow' : null),
             lastTurn.usd !== null && dim(' · '),
-            dim(short(lastTurn.fresh) + ' nuovi · ' + short(lastTurn.out) + ' scritti'),
+            dim(short(lastTurn.fresh) + ' nuovi · ' + short(lastTurn.out) + ' generati'),
           ].filter(Boolean),
         }),
       )
     }
     if (cacheReadPct !== null) {
-      parts.push(Box({ flexDirection: 'row', children: [dim('cache letta '), paint(cacheReadPct + '%', cacheColor(cacheReadPct))] }))
+      secondary.push(Box({ flexDirection: 'row', children: [dim('cache letta '), paint(cacheReadPct + '%', cacheColor(cacheReadPct))] }))
     }
-    const usageRow = parts.length
-      ? Box({ flexDirection: 'row', children: parts.flatMap((p, i) => (i ? [dim(' · '), p] : [p])) })
-      : null
-    const withTheirs = (line) =>
-      Box({ flexDirection: 'column', children: e.props.isWorking ? [line, usageRow, theirs].filter(Boolean) : [line, usageRow, gitLine, buttons, theirs].filter(Boolean) })
+    const joined = (list) => list.flatMap((p, i) => (i ? [dim(' · '), p] : [p]))
 
-    if (lastAt === null) return withTheirs(dim('cache · in attesa della prima richiesta'))
+    // Se c'è spazio tutto sta su una riga, altrimenti cache e contesto restano insieme e il resto va sotto
+    const isOneRow = columns >= 140
+    const main = Box({ flexDirection: 'row', children: joined([cacheSeg, ...others, ...(isOneRow ? secondary : [])]) })
+    const extra = !isOneRow && secondary.length ? Box({ flexDirection: 'row', children: joined(secondary) }) : null
 
-    const width = e.props.bodyColumns >= 110 ? 24 : 12
-    const leftMs = Math.max(0, TTL_MS - (now - lastAt))
-
-    if (leftMs === 0) {
-      return withTheirs(
-        Box({
-          flexDirection: 'row',
-          children: [
-            dim('cache  ' + '░'.repeat(width) + '  '),
-            Text({ color: 'red', children: ['scaduta'] }),
-            dim(' · la prossima richiesta la riscrive'),
-          ],
-        }),
-      )
-    }
-
-    // La parte piena è il tempo che resta: la barra si svuota da destra
-    const minutes = Math.ceil(leftMs / 60000)
-    const full = Math.ceil((leftMs / TTL_MS) * width)
-    const color = leftColor(minutes)
-    return withTheirs(
-      Box({
-        flexDirection: 'row',
-        children: [
-          dim('cache  '),
-          Text({ color, children: ['█'.repeat(full)] }),
-          dim('░'.repeat(width - full) + '  '),
-          Text({ color, children: [minutes + ' min rimasti'] }),
-          dim(' · ' + (60 - minutes) + ' min dall\'ultima richiesta'),
-        ],
-      }),
-    )
+    return Box({
+      flexDirection: 'column',
+      children: (e.props.isWorking ? [main, extra, theirs] : [main, extra, gitLine, buttons, theirs]).filter(Boolean),
+    })
   })
 }
