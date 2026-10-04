@@ -58,6 +58,25 @@ Per disattivare una mod, disabilitala o disinstallala dal tab **Installed** di `
 
 ---
 
+## Uso in cloud e da iPad
+
+Le sessioni cloud (claude.ai/code, app per iPad) non leggono le tue impostazioni locali: partono da un contenitore pulito e caricano i plugin dichiarati nella repo su cui lavori. Per attivare una mod in una repo, aggiungi a `.claude/settings.json` di quella repo:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "andrea-mods": { "source": { "source": "github", "repo": "andreabrugnoli/mods" } }
+  },
+  "enabledPlugins": { "cache-meter@andrea-mods": true }
+}
+```
+
+Lo fa per te `scripts/abilita-cloud.sh <percorso-repo> [mod ...]`, che unisce la voce alle impostazioni esistenti. Il tuo gitignore globale esclude `.claude/settings.json`: aggiungilo con `git add -f .claude/settings.json`, poi commit e push. La sessione cloud legge il file dal branch. Questa repo è privata, quindi l'accesso GitHub della sessione cloud deve includere anche `andreabrugnoli/mods`.
+
+Su iPad la banda sopra il prompt può non essere disegnata: restano `/cache` e `/nuova`. Lo stato (`$.store`) e i riassunti in `~/.claude/handoffs/` vivono nel contenitore della sessione e si perdono alla sua chiusura.
+
+---
+
 ## Comandi disponibili
 
 - `/replay` — apre il pannello di replay sull'ultimo turno che ha modificato file. Nel pannello: `n` passo successivo, `p` passo precedente, `c` o `Esc` chiusura.

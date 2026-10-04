@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "andrea-mods": {
+      "source": { "source": "github", "repo": "andreabrugnoli/mods" }
+    }
+  },
+  "enabledPlugins": {
+    "cache-meter@andrea-mods": true
+  }
+}
