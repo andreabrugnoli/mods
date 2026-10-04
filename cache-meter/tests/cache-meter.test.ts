@@ -87,3 +87,17 @@ test('le richieste dei subagent non rinnovano la barra', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'cache · in attesa della prima richiesta' })).toBeDefined()
   await ui.unmount()
 })
+
+test('il bottone Commit e push invia il prompt di commit', async ($, on) => {
+  const sent: string[] = []
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  on('prompt.submit', async ($, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Button', key: 'commit' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'fresh' })).toBeDefined()
+  await ui.press({ key: 'commit' })
+  expect(sent.some((t) => t.includes('git push'))).toBe(true)
+})
