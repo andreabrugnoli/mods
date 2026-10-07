@@ -166,7 +166,7 @@ function handoffPrompt(file) {
   return (
     'Prepara il passaggio a una nuova chat per risparmiare contesto. Scrivi in ' +
     file +
-    ' (crea la cartella se manca) un riassunto che permetta di riprendere dallo stesso punto: obiettivo, decisioni prese, stato attuale, file toccati con percorso, comandi utili, prossimi passi, punti aperti. Solo fatti, niente cronaca. Non fare altro. Rispondi con una riga.'
+    ' (crea la cartella se manca) un riassunto che permetta di riprendere dallo stesso punto: obiettivo, decisioni prese, stato attuale, file toccati con percorso assoluto, cartella di lavoro corrente, comandi utili, prossimi passi, punti aperti. Solo fatti, niente cronaca. Non fare altro. Rispondi con una riga.'
   )
 }
 
