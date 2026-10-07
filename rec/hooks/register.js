@@ -180,6 +180,22 @@ async function configText($) {
   ].join('\n')
 }
 
+// /rec alterna, /rec rigoroso accende anche la maschera sulle cifre grandi, /rec off spegne, /rec config crea la configurazione
+async function runRec($, e) {
+  const arg = String(e.args || '').trim().toLowerCase()
+  if (arg === 'config') return { text: await configText($) }
+  if (arg === 'off' || arg === 'spento' || (arg === '' && rec.on)) {
+    await setFlag($, false, false)
+    $.ui.toast('rec spento.' + (blocked ? ` Ha tenuto chiusi ${blocked} file privati.` : ''))
+    blocked = 0
+    return { text: 'rec · spento' }
+  }
+  const strict = arg === 'rigoroso' || arg === 'strict'
+  await setFlag($, true, strict)
+  $.ui.toast(`rec acceso${strict ? ' (rigoroso)' : ''}.`, { timeoutMs: 3000 })
+  return { text: 'rec · acceso' + (strict ? ' (rigoroso)' : '') }
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''
@@ -196,21 +212,9 @@ export function register(on) {
     return next(e)
   })
 
-  // /rec alterna, /rec rigoroso accende anche la maschera sulle cifre grandi, /rec off spegne, /rec config crea la configurazione
-  on('command.run', { command: 'rec' }, async ($, e) => {
-    const arg = String(e.args || '').trim().toLowerCase()
-    if (arg === 'config') return { text: await configText($) }
-    if (arg === 'off' || arg === 'spento' || (arg === '' && rec.on)) {
-      await setFlag($, false, false)
-      $.ui.toast('rec spento.' + (blocked ? ` Ha tenuto chiusi ${blocked} file privati.` : ''))
-      blocked = 0
-      return { text: 'rec · spento' }
-    }
-    const strict = arg === 'rigoroso' || arg === 'strict'
-    await setFlag($, true, strict)
-    $.ui.toast(`rec acceso${strict ? ' (rigoroso)' : ''}.`, { timeoutMs: 3000 })
-    return { text: 'rec · acceso' + (strict ? ' (rigoroso)' : '') }
-  })
+  on('command.run', { command: 'rec' }, runRec)
+  // Il comando statico del plugin si chiama anche rec:rec
+  on('command.run', { command: 'rec:rec' }, runRec)
 
   // Claude legge una nota accanto a ogni prompt mentre si registra, e una in più quando finisce
   on('prompt.submit', async ($, e, next) => {

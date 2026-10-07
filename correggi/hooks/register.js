@@ -50,6 +50,22 @@ export function parseToggle(args, current) {
 // Acceso o spento: lo decide /correggi e resta nello store tra una sessione e l'altra
 let enabled = true
 
+// /correggi alterna acceso e spento; /correggi elenco mostra gli inciampi anche dove la banda non si vede
+async function runCorreggi($, e) {
+  if (String(e.args ?? '').trim().toLowerCase() === 'elenco') {
+    if (!incidents.length) return { text: 'correggi · nessun inciampo in questa sessione' }
+    return { text: 'correggi · ' + incidents.length + ' inciampi\n' + listIncidents(incidents) + (skills.size ? '\nskill usate: ' + [...skills].join(', ') : '') }
+  }
+  enabled = parseToggle(e.args, enabled)
+  incidents = []
+  skills = new Set()
+  try {
+    await $.store.set('attiva', enabled)
+  } catch {}
+  $.ui.invalidate('ui.render')
+  return { text: 'correggi · ' + (enabled ? 'acceso' : 'spento') }
+}
+
 export function register(on) {
   // Ogni chiamata passa; se è stata negata o è fallita, la annotiamo
   on('tool.call', async ($, e, next) => {
@@ -73,21 +89,9 @@ export function register(on) {
     return next(e)
   })
 
-  // /correggi alterna acceso e spento; /correggi elenco mostra gli inciampi anche dove la banda non si vede
-  on('command.run', { command: 'correggi' }, async ($, e) => {
-    if (String(e.args ?? '').trim().toLowerCase() === 'elenco') {
-      if (!incidents.length) return { text: 'correggi · nessun inciampo in questa sessione' }
-      return { text: 'correggi · ' + incidents.length + ' inciampi\n' + listIncidents(incidents) + (skills.size ? '\nskill usate: ' + [...skills].join(', ') : '') }
-    }
-    enabled = parseToggle(e.args, enabled)
-    incidents = []
-    skills = new Set()
-    try {
-      await $.store.set('attiva', enabled)
-    } catch {}
-    $.ui.invalidate('ui.render')
-    return { text: 'correggi · ' + (enabled ? 'acceso' : 'spento') }
-  })
+  on('command.run', { command: 'correggi' }, runCorreggi)
+  // Il comando statico del plugin si chiama anche correggi:correggi
+  on('command.run', { command: 'correggi:correggi' }, runCorreggi)
 
   on('session.start', async ($, e, next) => {
     try {

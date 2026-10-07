@@ -1,6 +1,6 @@
 {
   "name": "scritture-esterne",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A fine turno elenca tutto ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push) con link e segnalazione degli errori. /scritture lo accende e lo spegne",
   "author": {
     "name": "Andrea Brugnoli"

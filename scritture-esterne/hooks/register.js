@@ -97,6 +97,17 @@ export function parseToggle(args, current) {
 // Acceso o spento: lo decide /scritture e resta nello store tra una sessione e l'altra
 let enabled = true
 
+async function runScritture($, e) {
+  enabled = parseToggle(e.args, enabled)
+  pending = []
+  shown = []
+  try {
+    await $.store.set('attiva', enabled)
+  } catch {}
+  $.ui.invalidate('ui.render')
+  return { text: 'scritture-esterne · ' + (enabled ? 'acceso' : 'spento') }
+}
+
 export function register(on, options) {
   // I nomi dei connettori con id opaco, scritti dall'utente nelle opzioni
   const custom = parseServices(options?.servizi)
@@ -109,16 +120,9 @@ export function register(on, options) {
     return next(e)
   })
 
-  on('command.run', { command: 'scritture' }, async ($, e) => {
-    enabled = parseToggle(e.args, enabled)
-    pending = []
-    shown = []
-    try {
-      await $.store.set('attiva', enabled)
-    } catch {}
-    $.ui.invalidate('ui.render')
-    return { text: 'scritture-esterne · ' + (enabled ? 'acceso' : 'spento') }
-  })
+  on('command.run', { command: 'scritture' }, runScritture)
+  // Il comando statico del plugin si chiama anche scritture-esterne:scritture
+  on('command.run', { command: 'scritture-esterne:scritture' }, runScritture)
 
   // Ogni chiamata: la lasciamo passare, poi annotiamo che cosa è successo
   on('tool.call', async ($, e, next) => {

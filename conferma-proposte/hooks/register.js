@@ -28,6 +28,16 @@ export function parseToggle(args, current) {
 // Acceso o spento: lo decide /conferma e resta nello store tra una sessione e l'altra
 let enabled = true
 
+async function runConferma($, e) {
+  enabled = parseToggle(e.args, enabled)
+  proposal = null
+  try {
+    await $.store.set('attiva', enabled)
+  } catch {}
+  $.ui.invalidate('ui.render')
+  return { text: 'conferma-proposte · ' + (enabled ? 'acceso' : 'spento') }
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     try {
@@ -37,15 +47,9 @@ export function register(on) {
     return next(e)
   })
 
-  on('command.run', { command: 'conferma' }, async ($, e) => {
-    enabled = parseToggle(e.args, enabled)
-    proposal = null
-    try {
-      await $.store.set('attiva', enabled)
-    } catch {}
-    $.ui.invalidate('ui.render')
-    return { text: 'conferma-proposte · ' + (enabled ? 'acceso' : 'spento') }
-  })
+  on('command.run', { command: 'conferma' }, runConferma)
+  // Il comando statico del plugin si chiama anche conferma-proposte:conferma
+  on('command.run', { command: 'conferma-proposte:conferma' }, runConferma)
 
   // Un nuovo prompt, scritto da te o inviato da un bottone: la proposta non vale più
   on('prompt.submit', ($, e, next) => {

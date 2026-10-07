@@ -288,6 +288,11 @@ async function setOpen($, want) {
   return 'posta · ' + (want ? 'aperta, ' + flat().length + ' mail' : 'chiusa')
 }
 
+async function runPosta($, e) {
+  const arg = String(e.args ?? '').trim().toLowerCase()
+  return { text: await setOpen($, arg === 'aggiorna' ? true : parseToggle(e.args, enabled)) }
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     try {
@@ -305,10 +310,9 @@ export function register(on) {
     return next(e)
   })
 
-  on('command.run', { command: 'posta' }, async ($, e) => {
-    const arg = String(e.args ?? '').trim().toLowerCase()
-    return { text: await setOpen($, arg === 'aggiorna' ? true : parseToggle(e.args, enabled)) }
-  })
+  on('command.run', { command: 'posta' }, runPosta)
+  // Il comando statico del plugin si chiama anche posta:posta
+  on('command.run', { command: 'posta:posta' }, runPosta)
 
   // Scrivere "posta" (senza barra) apre o chiude il pannello: non arriva al modello e non consuma token
   on('prompt.submit', async ($, e, next) => {
