@@ -1,0 +1,9 @@
+{
+  "name": "rec",
+  "version": "1.0.0",
+  "description": "Modalità registrazione: nasconde a schermo chiavi, dati personali, importi e clienti mentre lavori in Claude Code, e tiene chiusi i file privati. /rec la accende e la spegne",
+  "author": {
+    "name": "Andrea Brugnoli"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Modulo hooks di barra-cache",
+  "modules": [
+    "./register.js"
+  ]
+}

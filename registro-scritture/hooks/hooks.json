@@ -1,4 +1,0 @@
-{
-  "description": "Modulo hooks di registro-scritture",
-  "modules": ["./register.js"]
-}

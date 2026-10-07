@@ -1,0 +1,6 @@
+{
+  "description": "Modulo hooks di correggi",
+  "modules": [
+    "./register.js"
+  ]
+}

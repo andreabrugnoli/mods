@@ -5,28 +5,33 @@
     "url": "https://github.com/andreabrugnoli"
   },
   "metadata": {
-    "description": "Mod per Claude Code: barra della prompt cache con contesto e costo, stato della repo e registro delle scritture esterne"
+    "description": "Mod per Claude Code: barra della cache e dei consumi, registro delle scritture esterne, conferma delle proposte, raccolta degli inciampi e modalità rec per le registrazioni"
   },
   "plugins": [
     {
-      "name": "cache-meter",
-      "source": "./cache-meter",
-      "description": "Barra della prompt cache, contesto occupato, costo del turno, stato della repo e bottoni Commit, Push e Nuova chat"
+      "name": "barra-cache",
+      "source": "./barra-cache",
+      "description": "Sopra il prompt: memoria della chat, uso delle 5 ore e della settimana, durata della sessione, cache calda, stato della repo e bottoni Commit, Push e Nuova chat. /barra la accende e la spegne"
     },
     {
-      "name": "registro-scritture",
-      "source": "./registro-scritture",
-      "description": "A fine turno elenca ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push), con link e errori in rosso"
+      "name": "scritture-esterne",
+      "source": "./scritture-esterne",
+      "description": "A fine turno elenca ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push), con link e errori in rosso. /scritture lo accende e lo spegne"
     },
     {
-      "name": "conferma",
-      "source": "./conferma",
-      "description": "Quando Claude chiude con una proposta mostra il passaggio e i bottoni Sì, procedi e No, fermati"
+      "name": "conferma-proposte",
+      "source": "./conferma-proposte",
+      "description": "Quando Claude chiude con una proposta mostra il passaggio e i bottoni Sì, procedi e No, fermati. /conferma lo accende e lo spegne"
     },
     {
-      "name": "lezioni",
-      "source": "./lezioni",
-      "description": "Raccoglie gli inciampi della sessione e a richiesta propone come evitare che si ripetano"
+      "name": "correggi",
+      "source": "./correggi",
+      "description": "Raccoglie gli inciampi della sessione e a richiesta propone come evitare che si ripetano. /correggi lo accende e lo spegne"
+    },
+    {
+      "name": "rec",
+      "source": "./rec",
+      "description": "Modalità registrazione: nasconde a schermo chiavi, dati personali, importi e clienti, e tiene chiusi i file privati. /rec la accende e la spegne"
     }
   ]
 }

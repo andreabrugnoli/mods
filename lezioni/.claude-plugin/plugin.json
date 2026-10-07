@@ -1,6 +1,0 @@
-{
-  "name": "lezioni",
-  "version": "0.1.0",
-  "description": "Raccoglie gli inciampi della sessione (tool falliti, azioni negate, tue correzioni) e a richiesta propone come evitare che si ripetano",
-  "author": { "name": "Andrea Brugnoli" }
-}

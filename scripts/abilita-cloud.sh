@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Abilita le mod di andrea-mods in un'altra repo, così partono anche nelle sessioni cloud (iPad, web).
-# Uso: scripts/abilita-cloud.sh <percorso-repo> [mod ...]   (default: cache-meter)
+# Uso: scripts/abilita-cloud.sh <percorso-repo> [mod ...]   (default: barra-cache)
 set -euo pipefail
 
 repo="${1:?Uso: abilita-cloud.sh <percorso-repo> [mod ...]}"
 shift || true
-mods=("${@:-cache-meter}")
+mods=("${@:-barra-cache}")
 
 command -v jq >/dev/null || { echo "serve jq (brew install jq)" >&2; exit 1; }
 [ -d "$repo/.git" ] || { echo "$repo non è una repo Git" >&2; exit 1; }

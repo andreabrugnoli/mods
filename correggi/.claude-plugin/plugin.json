@@ -1,0 +1,8 @@
+{
+  "name": "correggi",
+  "version": "1.0.0",
+  "description": "Raccoglie gli inciampi della sessione e a richiesta propone come evitare che si ripetano. /correggi lo accende e lo spegne",
+  "author": {
+    "name": "Andrea Brugnoli"
+  }
+}

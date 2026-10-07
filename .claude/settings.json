@@ -8,7 +8,10 @@
     }
   },
   "enabledPlugins": {
-    "cache-meter@andrea-mods": true,
-    "registro-scritture@andrea-mods": true
+    "barra-cache@andrea-mods": true,
+    "scritture-esterne@andrea-mods": true,
+    "conferma-proposte@andrea-mods": true,
+    "correggi@andrea-mods": true,
+    "rec@andrea-mods": true
   }
 }

@@ -1,0 +1,6 @@
+{
+  "description": "Modulo hooks di conferma-proposte",
+  "modules": [
+    "./register.js"
+  ]
+}

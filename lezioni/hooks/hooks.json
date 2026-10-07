@@ -1,4 +1,0 @@
-{
-  "description": "Modulo hooks di lezioni",
-  "modules": ["./register.js"]
-}

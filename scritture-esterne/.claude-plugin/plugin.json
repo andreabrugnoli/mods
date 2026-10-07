@@ -1,0 +1,16 @@
+{
+  "name": "scritture-esterne",
+  "version": "1.0.0",
+  "description": "A fine turno elenca tutto ciò che è stato scritto fuori dalla repo (Notion, Postpickr, Spreaker, mail, git push) con link e segnalazione degli errori. /scritture lo accende e lo spegne",
+  "author": {
+    "name": "Andrea Brugnoli"
+  },
+  "userConfig": {
+    "servizi": {
+      "type": "string",
+      "title": "Nomi dei connettori",
+      "description": "Per i connettori MCP con id opaco: coppie id=Nome separate da virgola, ad esempio 1a2b3c4d-...=Postpickr, 5e6f7a8b-...=Notion",
+      "default": ""
+    }
+  }
+}

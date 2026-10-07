@@ -1,0 +1,6 @@
+{
+  "description": "Modulo hooks di scritture-esterne",
+  "modules": [
+    "./register.js"
+  ]
+}
