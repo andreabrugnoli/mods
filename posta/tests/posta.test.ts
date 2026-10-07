@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { buildPrompt, formatWhen, parseThreads, parseToggle, senderName } from '../hooks/register.js'
+import { buildPrompt, formatWhen, parseThreads, parseToggle, senderName, serverList } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -65,4 +65,17 @@ test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, 
   await ui.unmount()
   const closed = await $.command.run({ command: 'posta', args: 'off' })
   expect(closed.text).toContain('chiusa')
+})
+
+test('prova i nomi del connettore finché uno risponde', async ($, on) => {
+  const tried: string[] = []
+  on('mcp.call', (_$, e) => {
+    tried.push(e.server)
+    return e.server === 'Gmail' ? { value: REPLY } : { value: { content: [{ type: 'text', text: 'no connected MCP tool "search_threads" on a server named "' + e.server + '"' }], isError: true } }
+  })
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  const opened = await $.command.run({ command: 'posta', args: 'aggiorna' })
+  expect(opened.text).toContain('2 mail')
+  expect(tried.slice(0, 2)).toEqual(['claude.ai Gmail', 'Gmail'])
+  expect(serverList({ server: ['a', 'b'], resolved: 'b' })).toEqual(['b', 'a'])
 })

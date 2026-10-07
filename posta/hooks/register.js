@@ -1,11 +1,42 @@
 // Quante mail dell'inbox mostrare per account
 const PAGE_SIZE = 12
 
-// Gli account: il connettore MCP che li legge e un nome breve. Si sostituiscono
-// scrivendo un elenco con la stessa forma nello store (chiave "accounts")
+// I nomi con cui il connettore Gmail può comparire: cambiano da sessione a sessione
+// (nome del connettore, nome con prefisso, id), quindi si provano in ordine
+const GMAIL_SERVERS = ['claude.ai Gmail', 'Gmail', 'claude_ai_Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4']
+
+// Gli account: il connettore MCP che li legge (un nome o un elenco di nomi da provare)
+// e un nome breve. Si sostituiscono scrivendo un elenco con la stessa forma nello
+// store (chiave "accounts")
 const DEFAULT_ACCOUNTS = [
-  { name: 'hello', email: 'hello@andreabrugnoli.it', server: 'claude.ai Gmail' },
+  { name: 'hello', email: 'hello@andreabrugnoli.it', server: GMAIL_SERVERS },
 ]
+
+// I nomi di connettore da provare per un account, il primo funzionante per primo
+export function serverList(account) {
+  const list = [].concat(account.resolved ?? [], account.server ?? [])
+  return list.filter((name, i) => name && list.indexOf(name) === i)
+}
+
+// Chiama un tool dell'account provando i nomi di connettore uno dopo l'altro, e ricorda quello che risponde
+async function callGmail($, account, tool, args) {
+  let last = null
+  for (const server of serverList(account)) {
+    try {
+      const res = await $.mcp.call(server, tool, args)
+      if (res.isError && /no connected MCP/i.test(res.content?.[0]?.text ?? '')) {
+        last = res
+        continue
+      }
+      account.resolved = server
+      return res
+    } catch (err) {
+      if (!/no connected MCP|not found|unknown server/i.test(String(err?.message ?? err))) throw err
+      last = { isError: true, content: [{ type: 'text', text: String(err?.message ?? err) }] }
+    }
+  }
+  return last ?? { isError: true, content: [{ type: 'text', text: 'nessun connettore Gmail trovato' }] }
+}
 
 // Le regole di scrittura delle bozze, lette dal modello quando serve
 const RULES_FILE = '~/.claude/mods-data/posta/sistematore.md'
@@ -76,7 +107,7 @@ export function parseThreads(result) {
 // servono giudizio (scrivere, scegliere l'etichetta, compilare i campi)
 export function buildPrompt(action, account, mail) {
   const mailLine =
-    'Mail: account ' + account.email + ' (connettore MCP "' + account.server + '"), thread ' + mail.threadId +
+    'Mail: account ' + account.email + ' (connettore Gmail "' + (serverList(account)[0] ?? 'Gmail') + '", se non risponde usa quello disponibile), thread ' + mail.threadId +
     ', messaggio ' + mail.messageId + ', da ' + mail.sender + ', oggetto "' + mail.subject + '".'
   const read = 'Leggi il thread completo con get_thread prima di agire.'
   const draft =
@@ -111,7 +142,7 @@ async function load($) {
   boxes = await Promise.all(
     accounts.map(async (account) => {
       try {
-        const res = await $.mcp.call(account.server, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
+        const res = await callGmail($, account, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
         if (res.isError) return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 80) }
         return { account, mails: parseThreads(res), error: '' }
       } catch (err) {
