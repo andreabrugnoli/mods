@@ -18,24 +18,23 @@ export function serverList(account) {
   return list.filter((name, i) => name && list.indexOf(name) === i)
 }
 
-// Chiama un tool dell'account provando i nomi di connettore uno dopo l'altro, e ricorda quello che risponde
+// Chiama un tool dell'account provando i nomi di connettore uno dopo l'altro, e ricorda quello che risponde.
+// Se nessuno risponde, l'errore riporta il motivo di ciascun tentativo
 async function callGmail($, account, tool, args) {
-  let last = null
+  const failures = []
   for (const server of serverList(account)) {
     try {
       const res = await $.mcp.call(server, tool, args)
-      if (res.isError && /no connected MCP/i.test(res.content?.[0]?.text ?? '')) {
-        last = res
-        continue
+      if (!res.isError) {
+        account.resolved = server
+        return res
       }
-      account.resolved = server
-      return res
+      failures.push(server + ': ' + String(res.content?.[0]?.text ?? 'errore').replace(/\s+/g, ' '))
     } catch (err) {
-      if (!/no connected MCP|not found|unknown server/i.test(String(err?.message ?? err))) throw err
-      last = { isError: true, content: [{ type: 'text', text: String(err?.message ?? err) }] }
+      failures.push(server + ': ' + String(err?.message ?? err).replace(/\s+/g, ' '))
     }
   }
-  return last ?? { isError: true, content: [{ type: 'text', text: 'nessun connettore Gmail trovato' }] }
+  return { isError: true, content: [{ type: 'text', text: failures.join(' | ') || 'nessun connettore Gmail trovato' }] }
 }
 
 // Le regole di scrittura delle bozze, lette dal modello quando serve
@@ -143,10 +142,10 @@ async function load($) {
     accounts.map(async (account) => {
       try {
         const res = await callGmail($, account, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
-        if (res.isError) return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 80) }
+        if (res.isError) return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 600) }
         return { account, mails: parseThreads(res), error: '' }
       } catch (err) {
-        return { account, mails: [], error: clip(err?.message ?? err, 80) }
+        return { account, mails: [], error: clip(err?.message ?? err, 600) }
       }
     }),
   )
