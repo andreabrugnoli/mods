@@ -2,13 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](./LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-%E2%89%A5_2.1.287-d97757?style=flat)](https://code.claude.com/docs/en/plugins/mods/overview)
-[![Mods](https://img.shields.io/badge/Mods-5-3178c6?style=flat)](#le-cinque-mod)
+[![Mods](https://img.shields.io/badge/Mods-6-3178c6?style=flat)](#le-sei-mod)
 
-Un marketplace di mod per Claude Code, pensato per capire e controllare una sessione: barra della cache e dei consumi, registro di ciò che viene scritto fuori dalla repo, conferma delle proposte, raccolta degli inciampi e modalità rec per le registrazioni. Ogni mod è un plugin indipendente, installabile singolarmente con un comando.
+Un marketplace di mod per Claude Code, pensato per capire e controllare una sessione: barra della cache e dei consumi, registro di ciò che viene scritto fuori dalla repo, conferma delle proposte, raccolta degli inciampi, modalità rec per le registrazioni e inbox con bozze, etichette e task. Ogni mod è un plugin indipendente, installabile singolarmente con un comando.
 
 ---
 
-## Le cinque mod
+## Le sei mod
 
 Ogni mod si accende e si spegne con un comando `/...`, che funziona in terminale, nell'app Desktop e da iPad. Lo stato si ricorda tra una sessione e l'altra.
 
@@ -21,6 +21,8 @@ Ogni mod si accende e si spegne con un comando `/...`, che funziona in terminale
 **🛠 correggi** (`/correggi`) — durante la sessione annota gli inciampi: tool che falliscono, azioni negate dal sistema di permessi e le tue correzioni ("non vedo", "hai sbagliato", "riprova"). Con almeno due inciampi compare una riga con il conteggio, le skill usate e il bottone `Proponi correzione` (tasto `l`), che chiede a Claude di individuare la causa e proporre la modifica esatta alla skill o al file di istruzioni, senza applicarla. `/correggi elenco` mostra gli inciampi raccolti. Consuma token solo quando premi il bottone.
 
 **🔴 rec** (`/rec`) — la modalità per registrare un video o lavorare in una sessione live con ospiti. Maschera a schermo chiavi e valori dei `.env`, email, nomi, telefoni, indirizzi, codice fiscale, partita IVA, IBAN, importi in euro e cifre vicino a parole come fatturato, margine, compenso, preventivo. I risultati di posta, chat, task, file, calendario, Notion e strumenti di pagamento si disegnano nascosti. Claude continua a lavorare sui dati reali: cambia solo ciò che si vede (se modifica un file da 29 a 39 euro, il file cambia davvero, lo schermo no). Tiene chiusi i file privati (`.env`, credenziali, fatture, contratti, preventivi, buste paga) e gli strumenti di pagamento, e ogni prompt porta una nota nascosta che chiede a Claude di usare segnaposto al posto di nomi e cifre. Un ● REC rosso sopra il prompt e nel piè di pagina ricorda che è acceso. `/rec` alterna, `/rec rigoroso` maschera anche ogni cifra grande, `/rec off` spegne, `/rec config` crea `~/.claude/mods-data/rec/config.json` per il tuo nome (`nomiVisibili`), le persone da nascondere (`nomiNascosti`), le cartelle private (`percorsiPrivati`) e gli strumenti extra (`strumentiAffari`, `strumentiChiusi`). Limiti: cambia ciò che è disegnato, non ciò che è memorizzato; il riconoscimento per pattern non prende tutto quello che è scritto a parole, quindi riguarda il girato prima di pubblicarlo; i titoli delle chat nella barra laterale dell'app Desktop non si possono mascherare. Adattata da `recording-mode` di Nate Herk (MIT, vedi `rec/NOTICE.md`).
+
+**📬 posta** (`/posta`) — apre sopra il prompt la inbox Gmail (12 mail per account, mittente, oggetto, ora) con la scheda della mail selezionata (`j`/`k` per scorrere) e quattro bottoni: **Bozza** (`b`), **Label** (`l`), **Bozza+Label** (`m`) e **Task** (`t`). L'elenco e l'anteprima vengono dal connettore Gmail senza modello; le quattro azioni inviano un prompt al modello, che scrive la bozza con le regole di `~/.claude/mods-data/posta/sistematore.md` (solo il blocco "Email ottimizzata", la mail non viene mai inviata), sceglie l'etichetta più pertinente tra quelle esistenti (non ne crea) o crea il task nel database Tasks di Notion con data e ora. Label, Bozza+Label e Task archiviano la mail; Bozza la lascia in inbox. Gli account sono in `DEFAULT_ACCOUNTS` e si sostituiscono con la chiave `accounts` dello store. `/posta aggiorna` rilegge la inbox.
 
 ---
 
@@ -49,6 +51,7 @@ Una mod è codice eseguito con i tuoi permessi: può leggere e scrivere file, av
    claude plugin install conferma-proposte@andrea-mods
    claude plugin install correggi@andrea-mods
    claude plugin install rec@andrea-mods
+   claude plugin install posta@andrea-mods
    ```
 
 3. Avvia una nuova sessione con `claude`.
@@ -85,6 +88,7 @@ Accendere e spegnere (senza argomento alternano; accettano anche `on` e `off`):
 - `/conferma`: i bottoni Sì e No sulle proposte.
 - `/correggi`: la raccolta degli inciampi (`/correggi elenco` li mostra).
 - `/rec`: la modalità registrazione (`/rec rigoroso`, `/rec off`, `/rec config`).
+- `/posta`: la inbox con i bottoni Bozza, Label e Task (`/posta aggiorna`, `/posta off`).
 
 Altri comandi di barra-cache:
 
@@ -116,6 +120,7 @@ mods/
 ├── conferma-proposte/
 ├── correggi/
 ├── rec/
+├── posta/
 └── scripts/abilita-cloud.sh
 ```
 

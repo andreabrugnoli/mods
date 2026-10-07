@@ -5,7 +5,7 @@
     "url": "https://github.com/andreabrugnoli"
   },
   "metadata": {
-    "description": "Mod per Claude Code: barra della cache e dei consumi, registro delle scritture esterne, conferma delle proposte, raccolta degli inciampi e modalità rec per le registrazioni"
+    "description": "Mod per Claude Code: barra della cache e dei consumi, registro delle scritture esterne, conferma delle proposte, raccolta degli inciampi, modalità rec per le registrazioni e inbox con bozze, etichette e task"
   },
   "plugins": [
     {
@@ -32,6 +32,11 @@
       "name": "rec",
       "source": "./rec",
       "description": "Modalità registrazione: nasconde a schermo chiavi, dati personali, importi e clienti, e tiene chiusi i file privati. /rec la accende e la spegne"
+    },
+    {
+      "name": "posta",
+      "source": "./posta",
+      "description": "Mostra la inbox Gmail e, per ogni mail, i bottoni Bozza, Label, Bozza+Label e Task (Notion). Non invia mai. /posta la apre e la chiude"
     }
   ]
 }
