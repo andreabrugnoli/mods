@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { buildPrompt, formatWhen, parseThreads, parseToggle, senderName, serverList } from '../hooks/register.js'
+import { buildPrompt, formatWhen, parseThreads, parseToggle, senderName, serverList, shortSender } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -78,4 +78,30 @@ test('prova i nomi del connettore finché uno risponde', async ($, on) => {
   expect(opened.text).toContain('2 mail')
   expect(tried.slice(0, 2)).toEqual(['claude.ai Gmail', 'Gmail'])
   expect(serverList({ server: ['a', 'b'], resolved: 'b' })).toEqual(['b', 'a'])
+})
+
+test('il mittente breve è il nome, il dominio o la parte personale', () => {
+  expect(shortSender('Ada Rossi')).toBe('Ada Rossi')
+  expect(shortSender('linkedin@em.linkedin.com')).toBe('linkedin')
+  expect(shortSender('notify@mail.notion.com')).toBe('notion')
+  expect(shortSender('adrianosandri41@gmail.com')).toBe('adrianosandri41')
+})
+
+test('giù scorre la selezione oltre la finestra e Chiudi nasconde i bottoni', async ($, on) => {
+  const sent: string[] = []
+  const many = { threads: Array.from({ length: 12 }, (_, i) => ({ id: 't' + i, viewUrl: 'u', messages: [{ id: 'm' + i, sender: 'a' + i + '@x.it', subject: 'Oggetto ' + i, date: '2026-10-06T12:00:00Z', snippet: 's' }] })) }
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: JSON.stringify(many) }], isError: false } }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  on('prompt.submit', async (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Button', key: 'task' })).toBeDefined()
+  for (let i = 0; i < 7; i++) await ui.press({ key: 'giu' })
+  await ui.press({ key: 'bozza' })
+  expect(sent.at(-1)).toContain('thread t7')
+  await ui.press({ key: 'chiudi' })
+  expect(await ui.find({ type: 'Button', key: 'task' })).toBeUndefined()
 })

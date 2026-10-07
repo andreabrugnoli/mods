@@ -1,6 +1,9 @@
 // Quante mail dell'inbox mostrare per account
 const PAGE_SIZE = 12
 
+// Quante mail mostrare insieme nella lista: il resto scorre con j e k
+const WINDOW = 5
+
 // I nomi con cui il connettore Gmail può comparire: cambiano da sessione a sessione
 // (nome del connettore, nome con prefisso, id), quindi si provano in ordine
 const GMAIL_SERVERS = ['claude.ai Gmail', 'Gmail', 'claude_ai_Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4']
@@ -77,6 +80,18 @@ export function senderName(sender) {
   const s = String(sender ?? '').trim()
   const named = s.match(/^"?([^"<]+?)"?\s*<[^>]+>$/)
   return (named ? named[1] : s.replace(/[<>]/g, '')).trim()
+}
+
+// Il mittente per la lista: il nome se c'è, altrimenti il dominio (linkedin da em.linkedin.com),
+// oppure la parte prima della chiocciola per le caselle personali
+export function shortSender(sender) {
+  const s = String(sender ?? '').trim()
+  const at = s.indexOf('@')
+  if (at < 0) return s
+  const host = s.slice(at + 1).split('.')
+  const personal = ['gmail', 'outlook', 'hotmail', 'yahoo', 'icloud', 'libero', 'live', 'me']
+  const domain = host.length > 1 ? host[host.length - 2] : host[0]
+  return personal.includes(domain) || host.length < 2 ? s.slice(0, at) : domain
 }
 
 // Dalla risposta di search_threads alla lista di mail: una per thread, l'ultimo messaggio
@@ -178,6 +193,11 @@ export function register(on) {
     const all = flat()
     const current = all[cursor]
 
+    const close = () => {
+      enabled = false
+      $.ui.invalidate('ui.render')
+    }
+
     const move = (step) => () => {
       if (all.length) cursor = (cursor + step + all.length) % all.length
       $.ui.invalidate('ui.render')
@@ -197,24 +217,32 @@ export function register(on) {
       return $.prompt.submit({ text: buildPrompt(action.key, account, mail), asUser: true })
     }
 
-    const lines = []
-    let index = 0
-    for (const box of boxes) {
-      lines.push(Text({ key: 'h-' + box.account.name, bold: true, children: [box.account.email + ' · ' + box.mails.length] }))
-      if (box.error) lines.push(Text({ key: 'e-' + box.account.name, color: 'red', children: ['errore: ' + box.error] }))
-      for (const mail of box.mails) {
-        const selected = index === cursor
-        lines.push(Text({ key: 'm-' + index, inverse: selected, dimColor: !selected, children: [(selected ? '> ' : '  ') + formatWhen(mail.date) + '  ' + clip(mail.sender, 22) + '  ' + clip(mail.subject, 70)] }))
-        index += 1
-      }
-    }
+    // La finestra di mail visibili: poche righe, che scorrono con la selezione
+    const room = Math.max(3, Math.min(WINDOW, (e.props.maxRows ?? 10) - 6))
+    const top = Math.min(Math.max(0, cursor - Math.floor(room / 2)), Math.max(0, all.length - room))
+    const shown = all.slice(top, top + room)
+    const errors = boxes.filter((box) => box.error)
+    const total = boxes.map((box) => box.account.name + ' ' + box.mails.length).join(' · ')
+
+    const rows = shown.map((item, i) => {
+      const selected = top + i === cursor
+      const when = formatWhen(item.mail.date).padEnd(5)
+      return Text({
+        key: 'm-' + (top + i),
+        bold: selected,
+        dimColor: !selected,
+        children: [(selected ? '▸ ' : '  ') + when + '  ' + clip(shortSender(item.mail.sender), 18).padEnd(18) + '  ' + clip(item.mail.subject, 80)],
+      })
+    })
 
     return Box({
       flexDirection: 'column',
       children: [
-        ...lines,
-        current ? Text({ children: [clip(current.mail.sender + ' · ' + current.mail.subject, 100)] }) : Text({ dimColor: true, children: ['Inbox vuota'] }),
-        current ? Text({ dimColor: true, children: [clip(current.mail.snippet, 220)] }) : null,
+        Text({ key: 'head', bold: true, children: ['Posta · ' + total + (all.length ? '  (' + (cursor + 1) + '/' + all.length + ')' : '')] }),
+        ...errors.map((box) => Text({ key: 'e-' + box.account.name, color: 'red', children: ['errore: ' + box.error] })),
+        ...rows,
+        current ? Text({ key: 'det', children: [clip(current.mail.sender + '  ·  ' + current.mail.subject, 140)] }) : Text({ key: 'vuota', dimColor: true, children: ['Inbox vuota'] }),
+        current ? Text({ key: 'snip', dimColor: true, children: [clip(current.mail.snippet, 160)] }) : null,
         Box({
           flexDirection: 'row',
           children: [
@@ -223,6 +251,8 @@ export function register(on) {
             Button({ key: 'giu', label: 'Giù', hotkey: 'j', onPress: move(1) }),
             Text({ children: ['  '] }),
             ...ACTIONS.flatMap((a) => [Button({ key: a.key, label: a.label, hotkey: a.hotkey, variant: a.key === 'bozza' ? 'primary' : undefined, onPress: act(a) }), Text({ children: [' '] })]),
+            Text({ children: [' '] }),
+            Button({ key: 'chiudi', label: 'Chiudi', hotkey: 'x', onPress: close }),
           ],
         }),
         outcome ? Text({ dimColor: true, children: ['Inviato: ' + outcome] }) : null,
