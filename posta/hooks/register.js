@@ -4,6 +4,9 @@ const PAGE_SIZE = 12
 // Quante mail mostrare insieme nella lista: il resto scorre con j e k
 const WINDOW = 5
 
+// L'id del pannello e la parola che lo apre scrivendola nel prompt (senza barra, niente avviso dell'app)
+const PANE = 'posta'
+
 // I nomi con cui il connettore Gmail può comparire: cambiano da sessione a sessione
 // (nome del connettore, nome con prefisso, id), quindi si provano in ordine
 const GMAIL_SERVERS = ['claude.ai Gmail', 'Gmail', 'claude_ai_Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4']
@@ -52,6 +55,9 @@ let boxes = []
 let cursor = 0
 let outcome = ''
 
+// I testi già letti, per thread: undefined = non ancora chiesto, 'carico' = in arrivo
+const bodies = new Map()
+
 // Accorcia un testo su una riga
 function clip(text, n) {
   const one = String(text ?? '').replace(/\s+/g, ' ').trim()
@@ -73,6 +79,47 @@ export function formatWhen(iso, now = new Date()) {
   const two = (n) => String(n).padStart(2, '0')
   if (d.toDateString() === now.toDateString()) return two(d.getHours()) + ':' + two(d.getMinutes())
   return two(d.getDate()) + '/' + two(d.getMonth() + 1)
+}
+
+// La data per esteso: 7 ott 2026, 09:26
+export function formatLong(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const two = (n) => String(n).padStart(2, '0')
+  const months = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ', ' + two(d.getHours()) + ':' + two(d.getMinutes())
+}
+
+// Pulisce il testo di una mail: righe di asterischi o trattini ridotte, righe vuote ripetute tolte
+export function cleanBody(text) {
+  return String(text ?? '')
+    .replace(/\r/g, '')
+    .replace(/([*=_#-])\1{7,}/g, '────────')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 20000)
+}
+
+// Dalla risposta di get_thread ai messaggi da leggere, dal più recente
+export function parseThread(result) {
+  const text = (result?.content ?? []).map((b) => (b && b.type === 'text' ? b.text : '')).join('')
+  let data
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return []
+  }
+  return (data.messages ?? [])
+    .map((m) => ({
+      from: m.sender,
+      to: [].concat(m.toRecipients ?? []).join(', '),
+      date: m.date,
+      subject: m.subject,
+      body: cleanBody(m.plaintextBody ?? m.snippet),
+      attachments: (m.attachments ?? []).map((a) => a.filename ?? a.name).filter(Boolean),
+    }))
+    .reverse()
 }
 
 // Dal nome del mittente "Nome <a@b.it>" al solo nome, o all'indirizzo
@@ -167,6 +214,35 @@ async function load($) {
   cursor = 0
 }
 
+// Legge il testo del thread selezionato (una sola volta) e ridisegna il pannello
+async function loadBody($, item) {
+  if (!item || bodies.has(item.mail.threadId)) return
+  bodies.set(item.mail.threadId, 'carico')
+  try {
+    const res = await callGmail($, item.box.account, 'get_thread', { threadId: item.mail.threadId, messageFormat: 'PLAIN_TEXT' })
+    const messages = res.isError ? [] : parseThread(res)
+    bodies.set(item.mail.threadId, messages.length ? messages : { error: res.isError ? clip(res.content?.[0]?.text, 300) : 'testo non disponibile' })
+  } catch (err) {
+    bodies.set(item.mail.threadId, { error: clip(err?.message ?? err, 300) })
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// Apre il pannello (carica la inbox) o lo chiude; risponde con la riga di esito
+async function setOpen($, want) {
+  enabled = want
+  outcome = ''
+  if (want) {
+    await load($)
+    await $.ui.open({ id: PANE, title: 'Posta', focus: true })
+    void loadBody($, flat()[0])
+  } else {
+    await $.ui.close({ id: PANE })
+  }
+  $.ui.invalidate('ui.render')
+  return 'posta · ' + (want ? 'aperta, ' + flat().length + ' mail' : 'chiusa')
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     try {
@@ -179,27 +255,41 @@ export function register(on) {
 
   on('command.run', { command: 'posta' }, async ($, e) => {
     const arg = String(e.args ?? '').trim().toLowerCase()
-    enabled = arg === 'aggiorna' ? true : parseToggle(e.args, enabled)
-    outcome = ''
-    if (enabled) await load($)
-    $.ui.invalidate('ui.render')
-    return { text: 'posta · ' + (enabled ? 'aperta, ' + flat().length + ' mail' : 'chiusa') }
+    return { text: await setOpen($, arg === 'aggiorna' ? true : parseToggle(e.args, enabled)) }
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const theirs = await next(e)
-    if (!enabled || e.props.isWorking) return theirs
+  // Scrivere "posta" (senza barra) apre o chiude il pannello: non arriva al modello e non consuma token
+  on('prompt.submit', async ($, e, next) => {
+    const m = String(e.text ?? '').trim().toLowerCase().match(/^posta(?:\s+(on|off|aggiorna|chiudi))?$/)
+    if (!m) return next(e)
+    try {
+      const text = await setOpen($, m[1] === 'aggiorna' ? true : parseToggle(m[1], enabled))
+      return { drop: text }
+    } catch (err) {
+      // Se il pannello non si apre il prompt non deve restare bloccato
+      return { drop: 'posta: ' + clip(err?.message ?? err, 200) }
+    }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const all = flat()
+    cursor = Math.min(cursor, Math.max(0, all.length - 1))
     const current = all[cursor]
+    const rule = Text({ dimColor: true, children: ['─'.repeat(Math.max(10, Math.min(120, e.props.bodyColumns ?? 60)))] })
 
-    const close = () => {
-      enabled = false
+    // Sposta la selezione e carica il testo della nuova mail
+    const move = (step) => () => {
+      if (!all.length) return
+      cursor = (cursor + step + all.length) % all.length
+      void loadBody($, all[cursor])
       $.ui.invalidate('ui.render')
     }
 
-    const move = (step) => () => {
-      if (all.length) cursor = (cursor + step + all.length) % all.length
+    const refresh = async () => {
+      bodies.clear()
+      await load($)
+      void loadBody($, flat()[0])
       $.ui.invalidate('ui.render')
     }
 
@@ -212,51 +302,81 @@ export function register(on) {
       if (action.archives) {
         current.box.mails = current.box.mails.filter((m) => m !== mail)
         cursor = Math.min(cursor, Math.max(0, flat().length - 1))
+        void loadBody($, flat()[cursor])
       }
       $.ui.invalidate('ui.render')
       return $.prompt.submit({ text: buildPrompt(action.key, account, mail), asUser: true })
     }
 
-    // La finestra di mail visibili: poche righe, che scorrono con la selezione
-    const room = Math.max(3, Math.min(WINDOW, (e.props.maxRows ?? 10) - 6))
-    const top = Math.min(Math.max(0, cursor - Math.floor(room / 2)), Math.max(0, all.length - room))
-    const shown = all.slice(top, top + room)
-    const errors = boxes.filter((box) => box.error)
-    const total = boxes.map((box) => box.account.name + ' ' + box.mails.length).join(' · ')
-
-    const rows = shown.map((item, i) => {
+    // La lista: una finestra di poche righe che scorre con la selezione, con l'intestazione di ogni account
+    const top = Math.min(Math.max(0, cursor - Math.floor(WINDOW / 2)), Math.max(0, all.length - WINDOW))
+    const shown = all.slice(top, top + WINDOW)
+    const list = []
+    let lastBox = null
+    shown.forEach((item, i) => {
+      if (item.box !== lastBox) {
+        lastBox = item.box
+        list.push(Text({ key: 'h-' + item.box.account.name + i, bold: true, children: [item.box.account.email + ' · ' + item.box.mails.length + ' mail'] }))
+      }
       const selected = top + i === cursor
-      const when = formatWhen(item.mail.date).padEnd(5)
-      return Text({
-        key: 'm-' + (top + i),
-        bold: selected,
-        dimColor: !selected,
-        children: [(selected ? '▸ ' : '  ') + when + '  ' + clip(shortSender(item.mail.sender), 18).padEnd(18) + '  ' + clip(item.mail.subject, 80)],
-      })
+      list.push(
+        Text({
+          key: 'm-' + (top + i),
+          bold: selected,
+          dimColor: !selected,
+          children: [(selected ? '▸ ' : '  ') + formatWhen(item.mail.date).padEnd(5) + '  ' + clip(shortSender(item.mail.sender), 16).padEnd(16) + '  ' + clip(item.mail.subject, 90)],
+        }),
+      )
     })
 
+    // Il testo intero: tutti i messaggi del thread, dal più recente
+    const detail = []
+    const body = current ? bodies.get(current.mail.threadId) : null
+    if (!current) {
+      detail.push(Text({ key: 'vuota', dimColor: true, children: ['Inbox vuota'] }))
+    } else if (!body || body === 'carico') {
+      detail.push(Text({ key: 'carico', dimColor: true, children: ['Carico il testo…'] }))
+    } else if (body.error) {
+      detail.push(Text({ key: 'err', color: 'red', children: ['errore: ' + body.error] }))
+    } else {
+      body.forEach((m, i) => {
+        if (i > 0) detail.push(Text({ key: 'sep-' + i, dimColor: true, children: ['── messaggio precedente ──'] }))
+        detail.push(Text({ key: 'da-' + i, bold: true, children: ['Da:      ' + m.from] }))
+        detail.push(Text({ key: 'a-' + i, children: ['A:       ' + m.to] }))
+        detail.push(Text({ key: 'dt-' + i, children: ['Data:    ' + formatLong(m.date)] }))
+        detail.push(Text({ key: 'og-' + i, bold: true, children: ['Oggetto: ' + (m.subject ?? current.mail.subject)] }))
+        detail.push(Text({ key: 'sp-' + i, children: [' '] }))
+        detail.push(Text({ key: 'tx-' + i, children: [m.body || '(vuoto)'] }))
+        if (m.attachments.length) detail.push(Text({ key: 'al-' + i, dimColor: true, children: ['Allegati: ' + m.attachments.join(', ')] }))
+      })
+    }
+
+    const errors = boxes.filter((box) => box.error)
     return Box({
       flexDirection: 'column',
       children: [
-        Text({ key: 'head', bold: true, children: ['Posta · ' + total + (all.length ? '  (' + (cursor + 1) + '/' + all.length + ')' : '')] }),
+        Text({ key: 'head', bold: true, children: ['Posta' + (all.length ? '  (' + (cursor + 1) + '/' + all.length + ')' : '')] }),
         ...errors.map((box) => Text({ key: 'e-' + box.account.name, color: 'red', children: ['errore: ' + box.error] })),
-        ...rows,
-        current ? Text({ key: 'det', children: [clip(current.mail.sender + '  ·  ' + current.mail.subject, 140)] }) : Text({ key: 'vuota', dimColor: true, children: ['Inbox vuota'] }),
-        current ? Text({ key: 'snip', dimColor: true, children: [clip(current.mail.snippet, 160)] }) : null,
+        rule,
+        ...list,
+        rule,
+        outcome ? Text({ key: 'esito', dimColor: true, children: ['Inviato: ' + outcome] }) : null,
         Box({
           flexDirection: 'row',
           children: [
+            ...ACTIONS.flatMap((a) => [Button({ key: a.key, label: a.label, hotkey: a.hotkey, variant: a.key === 'bozza' ? 'primary' : undefined, onPress: act(a) }), Text({ children: [' '] })]),
+            Text({ children: ['  '] }),
             Button({ key: 'su', label: 'Su', hotkey: 'k', onPress: move(-1) }),
             Text({ children: [' '] }),
             Button({ key: 'giu', label: 'Giù', hotkey: 'j', onPress: move(1) }),
             Text({ children: ['  '] }),
-            ...ACTIONS.flatMap((a) => [Button({ key: a.key, label: a.label, hotkey: a.hotkey, variant: a.key === 'bozza' ? 'primary' : undefined, onPress: act(a) }), Text({ children: [' '] })]),
+            Button({ key: 'aggiorna', label: 'Aggiorna', hotkey: 'r', onPress: refresh }),
             Text({ children: [' '] }),
-            Button({ key: 'chiudi', label: 'Chiudi', hotkey: 'x', onPress: close }),
+            Button({ key: 'chiudi', label: 'Chiudi', hotkey: 'x', onPress: () => setOpen($, false) }),
           ],
         }),
-        outcome ? Text({ dimColor: true, children: ['Inviato: ' + outcome] }) : null,
-        theirs,
+        rule,
+        ...detail,
       ].filter(Boolean),
     })
   })

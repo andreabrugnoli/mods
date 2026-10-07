@@ -1,12 +1,24 @@
 import { expect, test } from 'claude-code/testing'
-import { buildPrompt, formatWhen, parseThreads, parseToggle, senderName, serverList, shortSender } from '../hooks/register.js'
+import { buildPrompt, cleanBody, formatLong, formatWhen, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
-  component: 'AbovePrompt',
+  component: 'Pane',
+  requestId: 'posta',
   viewport: { columns: 160, rows: 40 },
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 160, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  props: { title: 'Posta', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 30 } },
 } as const
+
+// Il motore sotto la mod: apre e chiude i pannelli
+const closed: string[] = []
+function engine(on: (event: any, hook: any) => void) {
+  closed.length = 0
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', (_$: unknown, e: { id: string }) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+}
 
 const THREADS = {
   threads: [
@@ -43,6 +55,7 @@ test('il prompt della bozza non invia e quello del task chiede data e ora', () =
 })
 
 test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, on) => {
+  engine(on)
   const sent: string[] = []
   on('mcp.call', () => ({ value: REPLY }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
@@ -68,6 +81,7 @@ test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, 
 })
 
 test('prova i nomi del connettore finché uno risponde', async ($, on) => {
+  engine(on)
   const tried: string[] = []
   on('mcp.call', (_$, e) => {
     tried.push(e.server)
@@ -88,6 +102,7 @@ test('il mittente breve è il nome, il dominio o la parte personale', () => {
 })
 
 test('giù scorre la selezione oltre la finestra e Chiudi nasconde i bottoni', async ($, on) => {
+  engine(on)
   const sent: string[] = []
   const many = { threads: Array.from({ length: 12 }, (_, i) => ({ id: 't' + i, viewUrl: 'u', messages: [{ id: 'm' + i, sender: 'a' + i + '@x.it', subject: 'Oggetto ' + i, date: '2026-10-06T12:00:00Z', snippet: 's' }] })) }
   on('mcp.call', () => ({ value: { content: [{ type: 'text', text: JSON.stringify(many) }], isError: false } }))
@@ -103,5 +118,33 @@ test('giù scorre la selezione oltre la finestra e Chiudi nasconde i bottoni', a
   await ui.press({ key: 'bozza' })
   expect(sent.at(-1)).toContain('thread t7')
   await ui.press({ key: 'chiudi' })
-  expect(await ui.find({ type: 'Button', key: 'task' })).toBeUndefined()
+  expect(closed).toContain('posta')
+})
+
+test('legge il thread dal più recente e pulisce il testo', () => {
+  const reply = { content: [{ type: 'text', text: JSON.stringify({ messages: [
+    { sender: 'a@x.it', toRecipients: ['h@y.it'], date: '2026-10-06T08:00:00Z', subject: 'Uno', plaintextBody: 'Primo\n\n\n\n*************************\nfine', attachments: [{ filename: 'f.pdf' }] },
+    { sender: 'h@y.it', toRecipients: ['a@x.it'], date: '2026-10-07T08:00:00Z', subject: 'Re: Uno', plaintextBody: 'Secondo' },
+  ] }) }], isError: false } as const
+  const messages = parseThread(reply)
+  expect(messages.map((m) => m.subject)).toEqual(['Re: Uno', 'Uno'])
+  expect(messages[1].attachments).toEqual(['f.pdf'])
+  expect(messages[1].body).toBe('Primo\n\n────────\nfine')
+  expect(cleanBody('')).toBe('')
+  expect(formatLong('data sbagliata')).toBe('')
+  expect(formatLong('2026-10-07T09:26:00')).toMatch(/^7 ott 2026, \d\d:\d\d$/)
+})
+
+test('scrivere posta apre il pannello senza arrivare al modello', async ($, on) => {
+  engine(on)
+  let reachedModel = false
+  on('mcp.call', () => ({ value: REPLY }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  on('prompt.submit', async (_$, e) => {
+    reachedModel = true
+    return { text: e.text }
+  })
+  const out = await $.prompt.submit({ text: 'posta', asUser: true })
+  expect(reachedModel).toBe(false)
+  expect(JSON.stringify(out)).toContain('aperta')
 })
