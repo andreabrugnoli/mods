@@ -1,5 +1,6 @@
-// Quante mail dell'inbox mostrare per account
-const PAGE_SIZE = 12
+// Quante mail leggere per pagina di risultati (il massimo del connettore) e quante pagine al massimo per account
+const PAGE_SIZE = 50
+const MAX_PAGES = 10
 
 // I colori del puntino di ogni account
 const DOTS = ['cyan', 'magenta', 'yellow', 'green']
@@ -197,6 +198,17 @@ export function parseThreads(result) {
   })
 }
 
+// Il token della pagina successiva nella risposta di search_threads, se c'è
+export function parseNextToken(result) {
+  const text = (result?.content ?? []).map((b) => (b && b.type === 'text' ? b.text : '')).join('')
+  try {
+    const token = JSON.parse(text).nextPageToken
+    return typeof token === 'string' && token ? token : ''
+  } catch {
+    return ''
+  }
+}
+
 // Il testo del thread già letto dalla mod, da dare al modello al posto di una nuova lettura
 export function threadText(body, limit = 6000) {
   if (!Array.isArray(body) || !body.length) return ''
@@ -376,6 +388,11 @@ async function doTask($, mail, text) {
 
 // Esegue l'azione di un bottone: tutte le scritture partono dal codice, il modello sceglie solo i contenuti
 export async function runAction($, key, account, mail) {
+  // L'eliminazione non ha bisogno del testo: il thread va nel cestino di Gmail (recuperabile)
+  if (key === 'elimina') {
+    await must($, account, 'trash_thread', { threadId: mail.threadId }, 'eliminazione')
+    return 'nel cestino'
+  }
   const text = await ensureText($, account, mail)
   if (key === 'bozza') return doDraft($, account, mail, text)
   if (key === 'label') return 'etichetta ' + (await doLabel($, account, mail, text))
@@ -396,6 +413,7 @@ const ACTIONS = [
   { key: 'label', label: 'Label', hotkey: 'l', archives: true },
   { key: 'misto', label: 'Bozza+Label', hotkey: 'm', archives: true },
   { key: 'task', label: 'Task', hotkey: 't', archives: false },
+  { key: 'elimina', label: 'Elimina', hotkey: 'd', archives: true },
 ]
 
 // La mail selezionata nell'elenco piatto di tutti gli account
@@ -408,9 +426,22 @@ async function load($) {
   boxes = await Promise.all(
     accounts.map(async (account) => {
       try {
-        const res = await callServers($, account, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
-        if (res.isError) return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 600) }
-        return { account, mails: parseThreads(res), error: '' }
+        // Si seguono le pagine finché ce ne sono, così l'inbox si vede tutta
+        const mails = []
+        let pageToken = ''
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const args = { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' }
+          if (pageToken) args.pageToken = pageToken
+          const res = await callServers($, account, 'search_threads', args)
+          if (res.isError) {
+            if (mails.length) break
+            return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 600) }
+          }
+          mails.push(...parseThreads(res).filter((m) => !mails.some((x) => x.threadId === m.threadId)))
+          pageToken = parseNextToken(res)
+          if (!pageToken) break
+        }
+        return { account, mails, error: '' }
       } catch (err) {
         return { account, mails: [], error: clip(err?.message ?? err, 600) }
       }

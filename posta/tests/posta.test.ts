@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cleanBody, formatLong, formatWhen, matchLabel, nowLocal, parseJson, parseLabels, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, taskFields, threadText, tomorrowNine } from '../hooks/register.js'
+import { cleanBody, formatLong, formatWhen, matchLabel, nowLocal, parseJson, parseLabels, parseNextToken, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, taskFields, threadText, tomorrowNine } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -37,6 +37,13 @@ test('legge i thread e il nome del mittente', () => {
   expect(mails[1].sender).toBe('info@y.it')
   expect(parseThreads({ content: [{ type: 'text', text: 'non json' }], isError: false })).toEqual([])
   expect(senderName('"Bianchi, Luca" <l@z.it>')).toBe('Bianchi, Luca')
+})
+
+test('legge il token della pagina successiva', () => {
+  const next = { content: [{ type: 'text', text: JSON.stringify({ ...THREADS, nextPageToken: 'abc' }) }], isError: false } as const
+  expect(parseNextToken(next)).toBe('abc')
+  expect(parseNextToken(REPLY)).toBe('')
+  expect(parseNextToken({ content: [{ type: 'text', text: 'non json' }], isError: false })).toBe('')
 })
 
 test('on e off alternano e riconoscono le parole', () => {
