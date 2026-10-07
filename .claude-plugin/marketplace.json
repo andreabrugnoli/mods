@@ -11,7 +11,7 @@
     {
       "name": "barra-cache",
       "source": "./barra-cache",
-      "description": "Sopra il prompt: memoria della chat, uso delle 5 ore e della settimana, durata della sessione, cache calda, stato della repo e bottoni Commit, Push e Nuova chat. /barra la accende e la spegne"
+      "description": "Sopra il prompt: memoria della chat, uso delle 5 ore e della settimana, durata della sessione, cache calda, stato della repo e bottoni Commit, Push e Handoff. /barra la accende e la spegne"
     },
     {
       "name": "scritture-esterne",

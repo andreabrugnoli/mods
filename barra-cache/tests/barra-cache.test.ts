@@ -110,7 +110,7 @@ test('/cache risponde prima e dopo la prima richiesta', async ($, on) => {
 })
 
 // Dove git non è raggiungibile (le sessioni cloud non hanno $.process) la banda resta quella di prima
-test('senza git la banda mostra Commit e Nuova chat e nessuna riga della repo', async ($, on) => {
+test('senza git la banda mostra Commit e Handoff e nessuna riga della repo', async ($, on) => {
   on('turn.complete', () => ({ text: 'ok' }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
   await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })

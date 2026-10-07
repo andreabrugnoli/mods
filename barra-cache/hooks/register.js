@@ -221,11 +221,21 @@ export function register(on) {
     try {
       if ((await $.store.get('attiva')) === false) enabled = false
     } catch {}
-    await $.command.register({ name: 'barra', description: 'Accende o spegne la barra sopra il prompt', argumentHint: '[on|off]', immediate: true })
-    await $.command.register({ name: 'cache', description: 'Quanto resta della prompt cache' })
-    await $.command.register({ name: 'push', description: 'Pubblica i commit del branch corrente' })
+    const specs = [
+      { name: 'barra', description: 'Accende o spegne la barra sopra il prompt', argumentHint: '[on|off]', immediate: true },
+      { name: 'cache', description: 'Quanto resta della prompt cache' },
+      { name: 'push', description: 'Pubblica i commit del branch corrente' },
+      { name: 'nuova', description: 'Riassume e riparte da una chat pulita' },
+      { name: 'handoff', description: 'Riassume e riparte da una chat pulita (come il bottone Handoff)' },
+    ]
+    for (const spec of specs) await $.command.register(spec)
     void refreshGit($)
-    await $.command.register({ name: 'nuova', description: 'Riassume e riparte da una chat pulita' })
+    // Nelle chat nuove l'elenco dei comandi può essere già chiuso a questo punto: si ripete dopo poco
+    for (const ms of [1500, 5000]) {
+      $.clock.after(ms, () => {
+        for (const spec of specs) void $.command.register(spec).catch(() => {})
+      })
+    }
     return next(e)
   })
 
@@ -255,10 +265,12 @@ export function register(on) {
     return { text: 'Push avviato.' }
   })
 
-  on('command.run', { command: 'nuova' }, async ($) => {
-    queued = 'nuova'
-    return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
-  })
+  for (const command of ['nuova', 'handoff']) {
+    on('command.run', { command }, async ($) => {
+      queued = 'nuova'
+      return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
+    })
+  }
 
   // Dopo il riassunto: svuota la chat e riparte dal file. Il comando va in coda, non si attende dentro il turno
   on('turn.complete', async ($, e, next) => {
@@ -358,7 +370,7 @@ export function register(on) {
         canPush && gap,
         Button({
           key: 'fresh',
-          label: 'Nuova chat',
+          label: 'Handoff',
           hotkey: 'n',
           onPress: () => startHandoff($),
         }),
