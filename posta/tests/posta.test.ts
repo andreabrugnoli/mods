@@ -50,12 +50,12 @@ test('prova i nomi del connettore finché uno risponde', async ($, on) => {
   const tried: string[] = []
   on('mcp.call', (_$, e) => {
     tried.push(e.server)
-    return e.server === 'Gmail' ? { value: REPLY } : { value: { content: [{ type: 'text', text: 'no connected MCP tool "search_threads" on a server named "' + e.server + '"' }], isError: true } }
+    return e.server === 'claude.ai Gmail' ? { value: REPLY } : { value: { content: [{ type: 'text', text: 'no connected MCP tool "search_threads" on a server named "' + e.server + '"' }], isError: true } }
   })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
   const opened = await $.command.run({ command: 'posta', args: 'aggiorna' })
   expect(opened.text).toContain('2 mail')
-  expect(tried.slice(0, 2)).toEqual(['claude.ai Gmail', 'Gmail'])
+  expect(tried.slice(0, 3)).toEqual(['Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4', 'claude.ai Gmail'])
   expect(serverList({ server: ['a', 'b'], resolved: 'b' })).toEqual(['b', 'a'])
 })
 
@@ -136,6 +136,11 @@ test('Label con una etichetta inventata non scrive nulla e rimette la mail in el
   await ui.press({ key: 'label' })
   expect(calls.some((c) => c.tool === 'label_thread' || c.tool === 'unlabel_thread')).toBe(false)
   expect(await ui.find({ type: 'Button', key: 'riprova' })).toBeDefined()
+  // Sulla mail successiva l'errore e Riprova non compaiono
+  await ui.press({ key: 'giu' })
+  expect(await ui.find({ type: 'Button', key: 'riprova' })).toBeUndefined()
+  await ui.press({ key: 'su' })
+  expect(await ui.find({ type: 'Button', key: 'riprova' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -145,7 +150,7 @@ test('Task crea la pagina con campi validati e lascia la mail in inbox', async (
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await ui.press({ key: 'task' })
   const page = calls.find((c) => c.tool === 'notion-create-pages')
-  expect(page?.server).toBe('claude.ai Notion')
+  expect(page?.server).toBe('Notion')
   expect(page?.args.parent).toEqual({ type: 'data_source_id', data_source_id: '1ee13fe7-1a52-8195-9008-000b5e44714d' })
   const props = page?.args.pages[0].properties
   expect(props.Task).toBe('Inviare il preventivo ad Ada')

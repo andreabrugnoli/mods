@@ -12,7 +12,7 @@ const PANE = 'posta'
 
 // I nomi con cui il connettore Gmail può comparire: cambiano da sessione a sessione
 // (nome del connettore, nome con prefisso, id), quindi si provano in ordine
-const GMAIL_SERVERS = ['claude.ai Gmail', 'Gmail', 'claude_ai_Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4']
+const GMAIL_SERVERS = ['Gmail', 'e14c09e8-d3bf-4f30-b839-ba795465d6b4', 'claude.ai Gmail', 'claude_ai_Gmail']
 
 // Gli account: il connettore MCP che li legge (un nome o un elenco di nomi da provare)
 // e un nome breve. Si sostituiscono scrivendo un elenco con la stessa forma nello
@@ -43,7 +43,9 @@ async function callServers($, account, tool, args) {
       failures.push(server + ': ' + String(err?.message ?? err).replace(/\s+/g, ' '))
     }
   }
-  return { isError: true, content: [{ type: 'text', text: failures.join(' | ') || 'nessun connettore trovato' }] }
+  // I nomi di connettore inesistenti non dicono nulla: si mostra l'errore del connettore che ha risposto
+  const real = failures.filter((f) => !/no connected MCP tool/i.test(f))
+  return { isError: true, content: [{ type: 'text', text: (real.length ? real : failures).join(' | ') || 'nessun connettore trovato' }] }
 }
 
 // Il data source del database Tasks di Notion
@@ -205,7 +207,7 @@ export function threadText(body, limit = 6000) {
 }
 
 // I nomi con cui il connettore Notion può comparire, provati in ordine come per Gmail
-const NOTION_SERVERS = ['claude.ai Notion', 'Notion', 'claude_ai_Notion', '46dded4b-f2d2-4af7-9ae7-1db030709c49']
+const NOTION_SERVERS = ['Notion', '46dded4b-f2d2-4af7-9ae7-1db030709c49', 'claude.ai Notion', 'claude_ai_Notion']
 const notion = { server: NOTION_SERVERS }
 
 // I modelli: uno economico per scegliere campi ed etichette, uno migliore per scrivere la bozza
@@ -434,7 +436,7 @@ async function loadBody($, item) {
 // Un lavoro fallito: la mail archiviata torna in elenco e l'errore si vede nel pannello
 function failJob($, job, note) {
   job.status = 'errore'
-  job.note = clip(note, 160)
+  job.note = clip(String(note).replace(/posta: \$ ?mcp\.call: /g, ''), 400)
   if (job.archived && !job.box.mails.includes(job.mail)) job.box.mails.unshift(job.mail)
   $.ui.toast('posta: ' + job.label + ' non riuscito')
   $.ui.invalidate('ui.render')
@@ -541,6 +543,11 @@ export function register(on) {
         job.note = clip(await runAction($, action.key, box.account, mail), 160)
         job.status = 'fatto'
         job.doneAt = Date.now()
+        // Riuscita: gli errori precedenti della stessa azione su questa mail non servono più
+        for (let i = jobs.length - 1; i >= 0; i--) {
+          const j = jobs[i]
+          if (j.status === 'errore' && j.action === action && j.mail.threadId === mail.threadId) jobs.splice(i, 1)
+        }
         $.ui.toast('posta: ' + job.label + ' fatto')
       } catch (err) {
         failJob($, job, String(err?.message ?? err))
@@ -548,11 +555,12 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
 
-    // Riprova l'ultimo lavoro fallito: seleziona la sua mail e rilancia la stessa azione
-    const failed = jobs.findLast((j) => j.status === 'errore')
+    // Gli errori si vedono solo sulla mail a cui appartengono; Riprova rilancia l'ultimo di quella mail
+    const mine = (j) => current && j.mail.threadId === current.mail.threadId
+    const failed = jobs.findLast((j) => j.status === 'errore' && mine(j))
     const retry = () => {
       if (!failed) return
-      const idx = flat().findIndex((x) => x.mail === failed.mail)
+      const idx = flat().findIndex((x) => x.mail.threadId === failed.mail.threadId)
       if (idx < 0) return
       jobs.splice(jobs.indexOf(failed), 1)
       cursor = idx
@@ -651,7 +659,7 @@ export function register(on) {
         ...list,
         rule,
         ...jobs
-          .filter((j) => j.status !== 'fatto' || Date.now() - j.doneAt < DONE_VISIBLE_MS)
+          .filter((j) => (j.status === 'corso') || (j.status === 'fatto' && Date.now() - j.doneAt < DONE_VISIBLE_MS) || (j.status === 'errore' && mine(j)))
           .slice(-4)
           .map((j, i) =>
             Text({
