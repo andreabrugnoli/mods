@@ -36,7 +36,7 @@
     {
       "name": "posta",
       "source": "./posta",
-      "description": "Mostra la inbox Gmail e, per ogni mail, i bottoni Bozza, Label, Bozza+Label e Task (Notion). Non invia mai. /posta la apre e la chiude"
+      "description": "Mostra la inbox Gmail e, per ogni mail, i bottoni Bozza, Label, Bozza+Label, Task (Notion) ed Elimina. Non invia mai. /posta la apre e la chiude"
     }
   ]
 }
