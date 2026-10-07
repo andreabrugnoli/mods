@@ -279,6 +279,31 @@ test('le finestre di consumo mostrano uso 5 ore e uso settimana', async ($, on) 
   expect(await ui.find({ type: 'Text', text: ' · speso 0,42 $ a listino' })).toBeDefined()
 })
 
+test('le finestre mostrano la scadenza e il limite di spesa', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-07T10:00:00') })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await $.session.measure({
+    context: { tokens: 91000, window: 200000, percent: 45 },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 19, resetsAt: '2026-10-07T14:30:00' },
+      { kind: 'seven_day', percentUsed: 28, resetsAt: '2026-10-12T09:05:00' },
+      { kind: 'spend_limit', percentUsed: 40, resetsAt: '2026-11-01T00:00:00' },
+    ],
+    cost: { usd: 0.42 },
+    changed: ['rateLimits'],
+  })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: ' scade 14:30' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' scade lun 12 ott 09:05' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '💳 limite di spesa ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' scade dom 1 nov 00:00' })).toBeDefined()
+  const out = await $.command.run({ command: 'cache' })
+  expect(out.text).toContain('uso settimana · 28%, scade lun 12 ott 09:05')
+})
+
 test('/barra spegne e riaccende la banda', async ($, on) => {
   mock.clock(on, { now: 1000 })
   stubStep(on)

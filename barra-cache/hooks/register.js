@@ -66,6 +66,20 @@ function dollars(n) {
   return n.toFixed(2).replace('.', ',') + ' $'
 }
 
+const DAYS_IT = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab']
+const MONTHS_IT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
+
+// Quando si rinnova una finestra, in ora locale: "14:30" se è oggi, altrimenti "lun 12 ott 14:30". Vuoto se la data manca o non è valida
+function resetLabel(resetsAt, nowMs) {
+  const at = new Date(resetsAt ?? NaN)
+  if (Number.isNaN(at.getTime())) return ''
+  const two = (n) => String(n).padStart(2, '0')
+  const time = two(at.getHours()) + ':' + two(at.getMinutes())
+  const today = new Date(nowMs)
+  const sameDay = at.getFullYear() === today.getFullYear() && at.getMonth() === today.getMonth() && at.getDate() === today.getDate()
+  return sameDay ? time : DAYS_IT[at.getDay()] + ' ' + at.getDate() + ' ' + MONTHS_IT[at.getMonth()] + ' ' + time
+}
+
 // Le finestre di consumo dell'abbonamento riportate dal motore: [{ kind, percentUsed }]
 let limits = []
 // Acceso o spento: lo decide /barra e resta nello store tra una sessione e l'altra
@@ -113,6 +127,11 @@ function usageLines() {
   if (usage && usage.usd !== undefined) lines.push('sessione · ' + dollars(usage.usd))
   if (startedAt !== null) lines.push('sessione · ' + duration(Math.max(0, now - startedAt)))
   if (cacheReadPct !== null) lines.push('cache letta · ' + cacheReadPct + '% dell\'ultima richiesta')
+  const names = { five_hour: 'uso 5 ore', seven_day: 'uso settimana', spend_limit: 'limite di spesa' }
+  for (const l of limits) {
+    const reset = resetLabel(l.resetsAt, now)
+    lines.push((names[l.kind] ?? l.kind) + ' · ' + Math.round(l.percentUsed) + '%' + (reset ? ', scade ' + reset : ''))
+  }
   return lines
 }
 
@@ -425,11 +444,20 @@ export function register(on) {
       const found = limits.find((l) => l.kind === kind)
       if (!found) return null
       const percent = Math.round(found.percentUsed)
-      return row([dim(icon + ' ' + label + ' '), ...bar(found.percentUsed / 100, contextColor(percent)), dim(' '), strong(percent + '%', percent > CONTEXT_BAD ? 'red' : null)])
+      const reset = resetLabel(found.resetsAt, now)
+      return row([
+        dim(icon + ' ' + label + ' '),
+        ...bar(found.percentUsed / 100, contextColor(percent)),
+        dim(' '),
+        strong(percent + '%', percent > CONTEXT_BAD ? 'red' : null),
+        reset && dim(' scade ' + reset),
+      ])
     }
     const five = limitRow('five_hour', '⏳', 'uso 5 ore')
     const week = limitRow('seven_day', '📅', 'uso settimana')
-    const usageRow = five || week ? row([five, five && week && gap, week]) : null
+    const spend = limitRow('spend_limit', '💳', 'limite di spesa')
+    const windows = [five, week, spend].filter(Boolean)
+    const usageRow = windows.length ? row(windows.flatMap((w, i) => (i === 0 ? [w] : [gap, w]))) : null
 
     // Riga 3: da quanto è aperta la sessione e quanto resta della cache
     let isCold = false
