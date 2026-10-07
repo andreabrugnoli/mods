@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { buildPrompt, cleanBody, formatLong, formatWhen, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, threadText, nowLocal } from '../hooks/register.js'
+import { cleanBody, formatLong, formatWhen, matchLabel, nowLocal, parseJson, parseLabels, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, taskFields, threadText, tomorrowNine } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -45,43 +45,6 @@ test('on e off alternano e riconoscono le parole', () => {
   expect(parseToggle('on', false)).toBe(true)
 })
 
-test('il prompt della bozza non invia e quello del task chiede data e ora', () => {
-  const account = { name: 'hello', email: 'hello@a.it', server: 'claude.ai Gmail' }
-  const mail = { threadId: 't1', messageId: 'm1', sender: 'Ada', subject: 'Preventivo' }
-  expect(buildPrompt('bozza', account, mail)).toContain('Non inviare mai la mail')
-  expect(buildPrompt('task', account, mail)).toContain('data e ora di scadenza')
-  expect(buildPrompt('misto', account, mail)).toContain('create_draft')
-  expect(buildPrompt('misto', account, mail)).toContain('list_labels')
-  expect(formatWhen('data sbagliata')).toBe('')
-})
-
-test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, on) => {
-  engine(on)
-  const sent: string[] = []
-  on('mcp.call', () => ({ value: REPLY }))
-  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
-  const spawned: string[] = []
-  on('agent.spawn', (_$: unknown, e: { prompt: string }) => {
-    spawned.push(e.prompt)
-    return { model: 'sonnet', agentId: 'a1' }
-  })
-  const opened = await $.command.run({ command: 'posta' })
-  expect(opened.text).toContain('2 mail')
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...BAND, surface })
-    expect(await ui.find({ type: 'Button', key: 'label' })).toBeDefined()
-    expect(await ui.find({ type: 'Button', key: 'task' })).toBeDefined()
-    await ui.unmount()
-  }
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  await ui.press({ key: 'label' })
-  expect(spawned.at(-1)).toContain('thread t1')
-  expect(spawned.at(-1)).toContain('LABEL')
-  await ui.unmount()
-  const closed = await $.command.run({ command: 'posta', args: 'off' })
-  expect(closed.text).toContain('chiusa')
-})
-
 test('prova i nomi del connettore finché uno risponde', async ($, on) => {
   engine(on)
   const tried: string[] = []
@@ -101,26 +64,6 @@ test('il mittente breve è il nome, il dominio o la parte personale', () => {
   expect(shortSender('linkedin@em.linkedin.com')).toBe('linkedin')
   expect(shortSender('notify@mail.notion.com')).toBe('notion')
   expect(shortSender('adrianosandri41@gmail.com')).toBe('adrianosandri41')
-})
-
-test('giù scorre la selezione oltre la finestra e Chiudi nasconde i bottoni', async ($, on) => {
-  engine(on)
-  const sent: string[] = []
-  const many = { threads: Array.from({ length: 12 }, (_, i) => ({ id: 't' + i, viewUrl: 'u', messages: [{ id: 'm' + i, sender: 'a' + i + '@x.it', subject: 'Oggetto ' + i, date: '2026-10-06T12:00:00Z', snippet: 's' }] })) }
-  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: JSON.stringify(many) }], isError: false } }))
-  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
-  on('agent.spawn', (_$: unknown, e: { prompt: string }) => {
-    sent.push(e.prompt)
-    return { model: 'sonnet', agentId: 'a2' }
-  })
-  await $.command.run({ command: 'posta', args: 'aggiorna' })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Button', key: 'task' })).toBeDefined()
-  for (let i = 0; i < 7; i++) await ui.press({ key: 'giu' })
-  await ui.press({ key: 'bozza' })
-  expect(sent.at(-1)).toContain('thread t7')
-  await ui.press({ key: 'chiudi' })
-  expect(closed).toContain('posta')
 })
 
 test('legge il thread dal più recente e pulisce il testo', () => {
@@ -150,17 +93,128 @@ test('scrivere posta apre il pannello senza arrivare al modello', async ($, on) 
   expect(reachedModel).toBe(false)
   expect(JSON.stringify(out)).toContain('aperta')
 })
+// Le risposte finte di Gmail e Notion per i bottoni: thread, etichette, scritture
+const GET_THREAD = { content: [{ type: 'text', text: JSON.stringify({ messages: [{ sender: 'Ada Rossi <ada@x.it>', toRecipients: ['hello@andreabrugnoli.it'], date: '2026-10-06T12:27:03Z', subject: 'Preventivo', plaintextBody: 'Mandami il preventivo entro venerdì' }] }) }], isError: false } as const
+const LABELS = { content: [{ type: 'text', text: JSON.stringify({ labels: [
+  { labelId: 'INBOX', name: 'INBOX', labelType: 'SYSTEM' },
+  { labelId: 'Label_64', name: 'Lavoro/Esami Finanza', labelType: 'USER' },
+  { labelId: 'Label_19', name: '0-Lead/Consulenza AI', labelType: 'USER' },
+] }) }], isError: false } as const
+const OK = { content: [{ type: 'text', text: '{}' }], isError: false } as const
 
-test('il prompt del task contiene database e campi e non chiede letture', () => {
-  const account = { name: 'hello', email: 'hello@a.it', server: 'Gmail' }
-  const mail = { threadId: 't1', messageId: 'm1', sender: 'Ada', subject: 'Preventivo', url: 'https://mail/x' }
-  const text = threadText([{ from: 'Ada', date: '2026-10-07T08:00:00Z', subject: 'Preventivo', body: 'Mandami il preventivo entro venerdì' }])
-  const prompt = buildPrompt('task', account, mail, text)
-  expect(prompt).toContain('1ee13fe7-1a52-8195-9008-000b5e44714d')
-  expect(prompt).toContain('Non usare notion-fetch')
-  expect(prompt).toContain('Mandami il preventivo entro venerdì')
-  expect(prompt).not.toContain('Leggi il thread completo con get_thread')
-  expect(prompt).toContain('Non iniziato')
-  expect(buildPrompt('task', account, mail)).toContain('get_thread')
+// Il motore con Gmail, Notion e il modello finti; registra ogni chiamata MCP
+function fakeWorld(on: (event: any, hook: any) => void, modelText: (e: any) => string) {
+  engine(on)
+  const calls: { server: string; tool: string; args: any }[] = []
+  on('mcp.call', (_$: unknown, e: any) => {
+    calls.push({ server: e.server, tool: e.tool, args: e.args })
+    const byTool: Record<string, unknown> = { search_threads: REPLY, get_thread: GET_THREAD, list_labels: LABELS }
+    return { value: byTool[e.tool] ?? OK }
+  })
+  on('model.complete', (_$: unknown, e: any) => ({ value: { isAnswered: true, text: modelText(e), usage: { input_tokens: 1, output_tokens: 1 } } }))
+  on('env.get', () => ({ value: '/Users/test' }))
+  on('fs.read', () => ({ value: 'Regole di prova' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  return calls
+}
+
+test('Label applica una etichetta esistente e toglie INBOX, senza subagent', async ($, on) => {
+  const calls = fakeWorld(on, () => 'Lavoro/Esami Finanza')
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'label' })
+  const label = calls.find((c) => c.tool === 'label_thread')
+  expect(label?.args).toEqual({ threadId: 't1', labelIds: ['Label_64'] })
+  expect(calls.find((c) => c.tool === 'unlabel_thread')?.args).toEqual({ threadId: 't1', labelIds: ['INBOX'] })
+  await ui.unmount()
+})
+
+test('Label con una etichetta inventata non scrive nulla e rimette la mail in elenco', async ($, on) => {
+  const calls = fakeWorld(on, () => 'Etichetta che non esiste')
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'label' })
+  expect(calls.some((c) => c.tool === 'label_thread' || c.tool === 'unlabel_thread')).toBe(false)
+  expect(await ui.find({ type: 'Button', key: 'riprova' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Task crea la pagina con campi validati e lascia la mail in inbox', async ($, on) => {
+  const calls = fakeWorld(on, () => '```json\n{"titolo":"Inviare il preventivo ad Ada","scadenza":"2020-01-01T09:00:00+01:00","Urgenza":"Urgentissimo","Importanza":"Importante","Impegno":"Veloce","contesto":"Lo chiede entro venerdì."}\n```')
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'task' })
+  const page = calls.find((c) => c.tool === 'notion-create-pages')
+  expect(page?.server).toBe('claude.ai Notion')
+  expect(page?.args.parent).toEqual({ type: 'data_source_id', data_source_id: '1ee13fe7-1a52-8195-9008-000b5e44714d' })
+  const props = page?.args.pages[0].properties
+  expect(props.Task).toBe('Inviare il preventivo ad Ada')
+  expect(props.Urgenza).toBe('Non urgente')
+  expect(props.Impegno).toBe('Veloce')
+  expect(props[' ']).toBe('Non iniziato')
+  expect(props['date:Data:start']).toMatch(/T09:00:00[+-]\d\d:\d\d$/)
+  expect(calls.some((c) => c.tool === 'unlabel_thread')).toBe(false)
+  await ui.unmount()
+})
+
+test('Bozza crea una bozza di risposta con le regole e non invia', async ($, on) => {
+  const systems: string[] = []
+  const calls = fakeWorld(on, (e) => {
+    systems.push(e.system)
+    return 'Gentile Ada,\n\nti invio il preventivo entro venerdì.\n\nCordiali saluti.\nAndrea'
+  })
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'bozza' })
+  const draft = calls.find((c) => c.tool === 'create_draft')
+  expect(draft?.args.replyToMessageId).toBe('m1')
+  expect(draft?.args.body).toContain('ti invio il preventivo')
+  expect(systems[0]).toBe('Regole di prova')
+  expect(calls.some((c) => /send|unlabel/.test(c.tool))).toBe(false)
+  await ui.unmount()
+})
+
+test('i campi del task restano negli elenchi ammessi', () => {
+  const now = new Date(2026, 9, 7, 15, 0)
+  const mail = { subject: 'Preventivo' }
+  const f = taskFields(parseJson('niente json'), mail, now)
+  expect(f.title).toBe('Preventivo')
+  expect(f.due).toBe(tomorrowNine(now))
+  expect([f.Urgenza, f.Importanza, f.Impegno]).toEqual(['Non urgente', 'Importante', 'Facile'])
+  const ok = taskFields({ titolo: 'Chiamare Ada', scadenza: '2026-10-09T15:00:00+02:00', Urgenza: 'Urgente' }, mail, now)
+  expect(ok.due).toBe('2026-10-09T15:00:00+02:00')
+  expect(ok.Urgenza).toBe('Urgente')
+  expect(tomorrowNine(new Date(2026, 9, 31, 23, 30))).toMatch(/^2026-11-01T09:00:00[+-]\d\d:\d\d$/)
   expect(nowLocal(new Date(2026, 9, 7, 9, 5))).toMatch(/^2026-10-07T09:05[+-]\d\d:\d\d$/)
+})
+
+test('le etichette: solo quelle utente, e solo un nome esistente', () => {
+  const labels = parseLabels(LABELS)
+  expect(labels.map((l) => l.id)).toEqual(['Label_64', 'Label_19'])
+  expect(matchLabel('"0-lead/consulenza ai".', labels)?.id).toBe('Label_19')
+  expect(matchLabel('INBOX', labels)).toBeNull()
+  expect(matchLabel('', labels)).toBeNull()
+  expect(threadText([])).toBe('')
+})
+
+test('giù scorre oltre la finestra, il bottone agisce sulla mail selezionata e Chiudi chiude', async ($, on) => {
+  engine(on)
+  const many = { threads: Array.from({ length: 12 }, (_, i) => ({ id: 't' + i, viewUrl: 'u', messages: [{ id: 'm' + i, sender: 'a' + i + '@x.it', subject: 'Oggetto ' + i, date: '2026-10-06T12:00:00Z', snippet: 's' }] })) }
+  const drafts: any[] = []
+  on('mcp.call', (_$: unknown, e: any) => {
+    if (e.tool === 'create_draft') drafts.push(e.args)
+    const byTool: Record<string, unknown> = { search_threads: { content: [{ type: 'text', text: JSON.stringify(many) }], isError: false }, get_thread: GET_THREAD }
+    return { value: byTool[e.tool] ?? OK }
+  })
+  on('model.complete', () => ({ value: { isAnswered: true, text: 'Ciao.', usage: { input_tokens: 1, output_tokens: 1 } } }))
+  on('env.get', () => ({ value: '/Users/test' }))
+  on('fs.read', () => ({ value: 'Regole' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  for (let i = 0; i < 7; i++) await ui.press({ key: 'giu' })
+  await ui.press({ key: 'bozza' })
+  expect(drafts.at(-1)?.replyToMessageId).toBe('m7')
+  await ui.press({ key: 'chiudi' })
+  expect(closed).toContain('posta')
 })

@@ -27,9 +27,9 @@ export function serverList(account) {
   return list.filter((name, i) => name && list.indexOf(name) === i)
 }
 
-// Chiama un tool dell'account provando i nomi di connettore uno dopo l'altro, e ricorda quello che risponde.
-// Se nessuno risponde, l'errore riporta il motivo di ciascun tentativo
-async function callGmail($, account, tool, args) {
+// Chiama un tool provando i nomi di connettore del bersaglio (un account Gmail o Notion) uno dopo l'altro,
+// e ricorda quello che risponde. Se nessuno risponde, l'errore riporta il motivo di ciascun tentativo
+async function callServers($, account, tool, args) {
   const failures = []
   for (const server of serverList(account)) {
     try {
@@ -43,34 +43,25 @@ async function callGmail($, account, tool, args) {
       failures.push(server + ': ' + String(err?.message ?? err).replace(/\s+/g, ' '))
     }
   }
-  return { isError: true, content: [{ type: 'text', text: failures.join(' | ') || 'nessun connettore Gmail trovato' }] }
+  return { isError: true, content: [{ type: 'text', text: failures.join(' | ') || 'nessun connettore trovato' }] }
 }
 
-// Il database Tasks di Notion: letto una volta, così il modello non lo cerca a ogni task
+// Il data source del database Tasks di Notion
 const TASKS_DB = '1ee13fe7-1a52-8195-9008-000b5e44714d'
-const TASKS_SCHEMA = [
-  'Task (titolo): cosa fare, breve e all\'infinito.',
-  'date:Data:start: data e ora di scadenza in ISO con fuso (ad esempio 2026-10-08T09:00:00+02:00); date:Data:is_datetime: 1. Sempre presente.',
-  'Urgenza (select): "Urgente", "Non urgente" oppure "Routine".',
-  'Importanza (select): "Importante", "Non importante" oppure "Strategico".',
-  'Impegno (select): "Flusso", "Facile", "Veloce" oppure "Personale".',
-  '" " (lo Stato, una colonna con nome uno spazio): "Non iniziato".',
-].join('\n- ')
 
-// Le regole di scrittura delle bozze, lette dal modello quando serve
-const RULES_FILE = '~/.claude/mods-data/posta/sistematore.md'
+// Le regole di scrittura delle bozze, dentro la cartella home
+const RULES_FILE = '/.claude/mods-data/posta/sistematore.md'
 
 // Acceso o spento: lo decide /posta e resta nello store tra una sessione e l'altra
 let enabled = false
 
-// Lo stato della vista: gli account con le loro mail, la mail selezionata, l'ultimo esito
+// Lo stato della vista: gli account con le loro mail e la mail selezionata
 let accounts = DEFAULT_ACCOUNTS
 let boxes = []
 let cursor = 0
-let outcome = ''
 
-// I lavori in background: ogni azione parte come subagent e riferisce qui, senza riempire la chat
-// { id, label, status: 'corso' | 'fatto' | 'errore', note, box, mail, archived }
+// I lavori in background: ogni azione gira nella mod e riferisce qui, senza riempire la chat
+// { label, status: 'corso' | 'fatto' | 'errore', note, box, mail, archived, action }
 const jobs = []
 
 // Il pannello mostra solo l'ultimo messaggio del thread; i precedenti si aprono a richiesta
@@ -213,7 +204,22 @@ export function threadText(body, limit = 6000) {
     .slice(0, limit)
 }
 
-// L'ora locale di adesso con il fuso, per dare al modello un riferimento per le scadenze
+// I nomi con cui il connettore Notion può comparire, provati in ordine come per Gmail
+const NOTION_SERVERS = ['claude.ai Notion', 'Notion', 'claude_ai_Notion', '46dded4b-f2d2-4af7-9ae7-1db030709c49']
+const notion = { server: NOTION_SERVERS }
+
+// I modelli: uno economico per scegliere campi ed etichette, uno migliore per scrivere la bozza
+const CHEAP_MODEL = 'haiku'
+const WRITER_MODEL = 'sonnet'
+
+// I valori ammessi dei campi del task: quello che il modello propone fuori elenco cade sul primo
+export const TASK_CHOICES = {
+  Urgenza: ['Non urgente', 'Urgente', 'Routine'],
+  Importanza: ['Importante', 'Non importante', 'Strategico'],
+  Impegno: ['Facile', 'Flusso', 'Veloce', 'Personale'],
+}
+
+// L'ora locale di adesso con il fuso, in ISO senza secondi
 export function nowLocal(d = new Date()) {
   const two = (n) => String(n).padStart(2, '0')
   const off = -d.getTimezoneOffset()
@@ -221,29 +227,164 @@ export function nowLocal(d = new Date()) {
   return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes()) + sign + two(Math.floor(Math.abs(off) / 60)) + ':' + two(Math.abs(off) % 60)
 }
 
-// Il prompt che un bottone invia al modello. Bozza, etichetta e task passano da lui:
-// servono giudizio (scrivere, scegliere l'etichetta, compilare i campi)
-export function buildPrompt(action, account, mail, text = '') {
-  const mailLine =
-    'Mail: account ' + account.email + ' (connettore Gmail "' + (serverList(account)[0] ?? 'Gmail') + '", se non risponde usa quello disponibile), thread ' + mail.threadId +
-    ', messaggio ' + mail.messageId + ', da ' + mail.sender + ', oggetto "' + mail.subject + '".'
-  const read = text
-    ? 'Testo del thread (già letto, non rileggerlo):\n<<<\n' + text + '\n>>>'
-    : 'Leggi il thread completo con get_thread prima di agire.'
-  const draft =
-    'BOZZA: scrivi la risposta seguendo le regole in ' + RULES_FILE + ' e crea una bozza di risposta con create_draft ' +
-    '(replyToMessageId = ' + mail.messageId + '). Nella bozza metti solo il blocco "Email ottimizzata". Non inviare mai la mail.'
-  const label =
-    'LABEL: con list_labels leggi le etichette dell\'account e applica con label_thread quella più pertinente tra le ' +
-    'esistenti. Non creare etichette nuove. Poi archivia il thread con unlabel_thread togliendo INBOX.'
-  const task =
-    'TASK: crea un task con notion-create-pages nel data source ' + TASKS_DB + ' (database Tasks). ' +
-    'Non usare notion-fetch, notion-search né altre letture: lo schema è qui. Proprietà da compilare tutte:\n- ' + TASKS_SCHEMA +
-    '\nNon compilare Progetto e Contesto. Ora locale adesso: ' + nowLocal() + '. Scegli la scadenza in base alla mail, ' +
-    'altrimenti domani alle 09:00. Nel corpo della pagina metti una riga con il link alla mail (' + (mail.url ?? 'senza link') + ') e due righe di contesto. ' +
-    'Non archiviare il thread: deve restare in INBOX.'
-  const parts = { bozza: [draft], label: [label], misto: [draft, label], task: [task] }[action]
-  return ['Gestione posta.', mailLine, read, ...parts, 'Lavori in background: nessuna domanda e nessun testo lungo. Chiudi con una sola riga di esito (massimo 120 caratteri).'].join('\n')
+// Domani alle 09:00 locali, in ISO con fuso
+export function tomorrowNine(d = new Date()) {
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 9, 0, 0)
+  return nowLocal(next).replace('T09:00', 'T09:00:00')
+}
+
+// Il primo oggetto JSON in una risposta del modello, anche se racchiuso in un blocco di codice
+export function parseJson(text) {
+  const s = String(text ?? '')
+  const start = s.indexOf('{')
+  const end = s.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    return JSON.parse(s.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
+
+// I campi del task proposti dal modello, ricondotti a valori ammessi: titolo non vuoto e corto,
+// scelte negli elenchi, scadenza tra adesso e un anno, altrimenti domani alle 09:00
+export function taskFields(raw, mail, now = new Date()) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const pick = (key) => (TASK_CHOICES[key].includes(r[key]) ? r[key] : TASK_CHOICES[key][0])
+  const due = new Date(r.scadenza)
+  const valid = typeof r.scadenza === 'string' && /T\d\d:\d\d/.test(r.scadenza) && due > now && due - now < 365 * 864e5
+  return {
+    title: clip(r.titolo, 120) || clip(mail.subject, 120) || 'Rispondere alla mail',
+    due: valid ? r.scadenza : tomorrowNine(now),
+    Urgenza: pick('Urgenza'),
+    Importanza: pick('Importanza'),
+    Impegno: pick('Impegno'),
+    context: clip(r.contesto, 400),
+  }
+}
+
+// Le etichette dell'utente dalla risposta di list_labels (le etichette di sistema no)
+export function parseLabels(result) {
+  const text = (result?.content ?? []).map((b) => (b && b.type === 'text' ? b.text : '')).join('')
+  try {
+    return (JSON.parse(text).labels ?? []).filter((l) => l.labelType === 'USER' && l.labelId && l.name).map((l) => ({ id: l.labelId, name: l.name }))
+  } catch {
+    return []
+  }
+}
+
+// L'etichetta indicata dal modello, solo se è una di quelle esistenti
+export function matchLabel(answer, labels) {
+  const a = String(answer ?? '').trim().replace(/^["'`]+|["'`.]+$/g, '').trim().toLowerCase()
+  if (!a) return null
+  return labels.find((l) => l.name.toLowerCase() === a) ?? null
+}
+
+// Una completion senza tool: il modello propone, il codice decide cosa scrivere
+async function ask($, request) {
+  const r = await $.model.complete({ timeoutMs: 90000, ...request })
+  if (!r.isAnswered) throw new Error('modello senza risposta (' + r.reason + (r.status ? ' ' + r.status : '') + ')')
+  return r.text
+}
+
+// Il testo del thread: quello già letto dal pannello, altrimenti lo legge ora
+async function ensureText($, account, mail) {
+  let body = bodies.get(mail.threadId)
+  if (!Array.isArray(body)) {
+    const res = await callServers($, account, 'get_thread', { threadId: mail.threadId, messageFormat: 'PLAIN_TEXT' })
+    if (res.isError) throw new Error('lettura del thread: ' + clip(res.content?.[0]?.text, 200))
+    body = parseThread(res)
+    if (body.length) bodies.set(mail.threadId, body)
+  }
+  return threadText(body) || 'Oggetto: ' + mail.subject + '\n\n' + (mail.snippet ?? '')
+}
+
+// Una chiamata che deve riuscire: altrimenti l'errore ferma l'azione
+async function must($, target, tool, args, what) {
+  const res = await callServers($, target, tool, args)
+  if (res.isError) throw new Error(what + ': ' + clip(res.content?.[0]?.text, 200))
+  return res
+}
+
+// Le regole della bozza, lette dal file dell'utente
+let rules = null
+async function draftRules($) {
+  if (rules) return rules
+  const home = (await $.env.get('HOME')) || ''
+  rules = await $.fs.read(home + RULES_FILE)
+  return rules
+}
+
+// BOZZA: il modello scrive solo il testo, il codice crea la bozza di risposta (mai inviata)
+async function doDraft($, account, mail, text) {
+  const system = await draftRules($)
+  const reply = await ask($, {
+    model: WRITER_MODEL,
+    system,
+    maxTokens: 2000,
+    prompt: 'Thread (dal messaggio più recente):\n<<<\n' + text + '\n>>>\n\nScrivi la risposta di Andrea all\'ultimo messaggio. Restituisci solo il testo della mail, senza titoli, commenti né markdown.',
+  })
+  const body = String(reply).replace(/^```[a-z]*\n?|\n?```$/g, '').trim()
+  if (!body) throw new Error('bozza vuota')
+  await must($, account, 'create_draft', { replyToMessageId: mail.messageId, body }, 'creazione bozza')
+  return 'bozza creata'
+}
+
+// LABEL: il modello sceglie tra le etichette esistenti, il codice la applica e toglie INBOX
+async function doLabel($, account, mail, text) {
+  const labels = parseLabels(await must($, account, 'list_labels', {}, 'lettura etichette'))
+  if (!labels.length) throw new Error('nessuna etichetta trovata')
+  const answer = await ask($, {
+    model: CHEAP_MODEL,
+    effort: 'low',
+    maxTokens: 100,
+    system: 'Classifichi mail. Rispondi solo con il nome esatto di una etichetta dell\'elenco, nient\'altro.',
+    prompt: 'Etichette:\n' + labels.map((l) => l.name).join('\n') + '\n\nMail:\n<<<\n' + text.slice(0, 3000) + '\n>>>\n\nQuale etichetta è la più pertinente?',
+  })
+  const label = matchLabel(answer, labels)
+  if (!label) throw new Error('etichetta non riconosciuta: ' + clip(answer, 60))
+  await must($, account, 'label_thread', { threadId: mail.threadId, labelIds: [label.id] }, 'etichetta')
+  await must($, account, 'unlabel_thread', { threadId: mail.threadId, labelIds: ['INBOX'] }, 'archiviazione')
+  return label.name
+}
+
+// TASK: il modello propone i campi, il codice li valida e crea la pagina nel database Tasks
+async function doTask($, mail, text) {
+  const answer = await ask($, {
+    model: CHEAP_MODEL,
+    effort: 'low',
+    maxTokens: 400,
+    system: 'Trasformi una mail in un task. Rispondi solo con un oggetto JSON, senza testo intorno.',
+    prompt:
+      'Ora locale: ' + nowLocal() + '.\nMail:\n<<<\n' + text.slice(0, 4000) + '\n>>>\n\n' +
+      'Campi: "titolo" (cosa fare, breve, verbo all\'infinito), "scadenza" (ISO con fuso, ad esempio ' + tomorrowNine() + '; se la mail non indica una data usa domani alle 09:00), ' +
+      Object.entries(TASK_CHOICES).map(([k, v]) => '"' + k + '" (uno tra ' + v.map((x) => '"' + x + '"').join(', ') + ')').join(', ') +
+      ', "contesto" (una o due frasi).',
+  })
+  const f = taskFields(parseJson(answer), mail)
+  await must($, notion, 'notion-create-pages', {
+    parent: { type: 'data_source_id', data_source_id: TASKS_DB },
+    pages: [{
+      properties: { Task: f.title, 'date:Data:start': f.due, 'date:Data:is_datetime': 1, Urgenza: f.Urgenza, Importanza: f.Importanza, Impegno: f.Impegno, ' ': 'Non iniziato' },
+      content: '[Apri la mail](' + (mail.url ?? '') + ') da ' + mail.sender + '\n\n' + f.context,
+    }],
+  }, 'creazione task')
+  return clip(f.title, 50) + ' · ' + formatLong(f.due)
+}
+
+// Esegue l'azione di un bottone: tutte le scritture partono dal codice, il modello sceglie solo i contenuti
+export async function runAction($, key, account, mail) {
+  const text = await ensureText($, account, mail)
+  if (key === 'bozza') return doDraft($, account, mail, text)
+  if (key === 'label') return 'etichetta ' + (await doLabel($, account, mail, text))
+  if (key === 'misto') {
+    // Se la bozza c'è già (un tentativo precedente si è fermato all'etichetta) non la si ripete
+    if (!mail.drafted) await doDraft($, account, mail, text)
+    mail.drafted = true
+    return 'bozza creata, etichetta ' + (await doLabel($, account, mail, text))
+  }
+  if (key === 'task') return 'task: ' + (await doTask($, mail, text))
+  throw new Error('azione sconosciuta: ' + key)
 }
 
 // Le azioni dei bottoni: cosa fanno alla mail dopo l'invio. Solo l'etichetta sposta la mail
@@ -265,7 +406,7 @@ async function load($) {
   boxes = await Promise.all(
     accounts.map(async (account) => {
       try {
-        const res = await callGmail($, account, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
+        const res = await callServers($, account, 'search_threads', { query: 'in:inbox', pageSize: PAGE_SIZE, view: 'THREAD_VIEW_MINIMAL' })
         if (res.isError) return { account, mails: [], error: clip((res.content?.[0]?.text) ?? 'errore', 600) }
         return { account, mails: parseThreads(res), error: '' }
       } catch (err) {
@@ -281,7 +422,7 @@ async function loadBody($, item) {
   if (!item || bodies.has(item.mail.threadId)) return
   bodies.set(item.mail.threadId, 'carico')
   try {
-    const res = await callGmail($, item.box.account, 'get_thread', { threadId: item.mail.threadId, messageFormat: 'PLAIN_TEXT' })
+    const res = await callServers($, item.box.account, 'get_thread', { threadId: item.mail.threadId, messageFormat: 'PLAIN_TEXT' })
     const messages = res.isError ? [] : parseThread(res)
     bodies.set(item.mail.threadId, messages.length ? messages : { error: res.isError ? clip(res.content?.[0]?.text, 300) : 'testo non disponibile' })
   } catch (err) {
@@ -302,7 +443,6 @@ function failJob($, job, note) {
 // Apre il pannello (carica la inbox) o lo chiude; risponde con la riga di esito
 async function setOpen($, want) {
   enabled = want
-  outcome = ''
   if (want) {
     await load($)
     await $.ui.open({ id: PANE, title: 'Posta', focus: true })
@@ -316,7 +456,11 @@ async function setOpen($, want) {
 
 async function runPosta($, e) {
   const arg = String(e.args ?? '').trim().toLowerCase()
-  return { text: await setOpen($, arg === 'aggiorna' ? true : parseToggle(e.args, enabled)) }
+  try {
+    return { text: await setOpen($, arg === 'aggiorna' ? true : parseToggle(e.args, enabled)) }
+  } catch (err) {
+    return { text: 'posta: ' + clip(err?.message ?? err, 200) }
+  }
 }
 
 export function register(on) {
@@ -353,23 +497,6 @@ export function register(on) {
     }
   })
 
-  // Il subagent ha finito: l'esito va nel pannello, non nella chat
-  on('turn.complete', ($, e, next) => {
-    const job = e.agentId ? jobs.find((j) => j.id === e.agentId) : null
-    if (job) {
-      if (e.reason === 'answer') {
-        job.status = 'fatto'
-        job.doneAt = Date.now()
-        job.note = clip(e.answer, 160)
-        $.ui.toast('posta: ' + job.label + ' fatto')
-        $.ui.invalidate('ui.render')
-      } else {
-        failJob($, job, 'interrotto (' + e.reason + ')')
-      }
-    }
-    return next(e)
-  })
-
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const all = flat()
@@ -394,13 +521,14 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
 
-    // Il bottone avvia un subagent in background e toglie la mail dall'elenco se l'azione la archivia;
+    // Il bottone avvia l'azione in background e toglie la mail dall'elenco se l'azione la archivia;
     // l'esito compare nel pannello e in un avviso, la chat resta pulita
     const act = (action, target = current) => async () => {
       if (!target) return
-      const { account } = target.box
       const { box, mail } = target
-      const job = { id: null, label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives, action }
+      // Un secondo tocco sulla stessa mail mentre l'azione gira non la ripete
+      if (jobs.some((j) => j.status === 'corso' && j.mail === mail && j.action === action)) return
+      const job = { label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives, action }
       jobs.push(job)
       tick($)
       if (action.archives) {
@@ -410,16 +538,10 @@ export function register(on) {
       }
       $.ui.invalidate('ui.render')
       try {
-        const request = {
-          prompt: buildPrompt(action.key, account, mail, threadText(bodies.get(mail.threadId))),
-          description: 'posta: ' + action.label,
-          model: action.key === 'bozza' || action.key === 'misto' ? undefined : 'haiku',
-        }
-        let res = await $.agent.spawn(request)
-        // Il classificatore della modalità auto a volte non dà verdetto: l'esito è transitorio, si riprova una volta
-        if (res.deny && /no verdict/i.test(String(res.deny))) res = await $.agent.spawn(request)
-        if (res.deny) failJob($, job, String(res.deny))
-        else job.id = res.agentId
+        job.note = clip(await runAction($, action.key, box.account, mail), 160)
+        job.status = 'fatto'
+        job.doneAt = Date.now()
+        $.ui.toast('posta: ' + job.label + ' fatto')
       } catch (err) {
         failJob($, job, String(err?.message ?? err))
       }
