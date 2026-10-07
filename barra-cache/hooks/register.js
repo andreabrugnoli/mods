@@ -398,18 +398,6 @@ export function register(on) {
         }),
       ].filter(Boolean),
     })
-    const gitLine =
-      git === null
-        ? null
-        : Box({
-            flexDirection: 'row',
-            children: [
-              dim('repo · ' + git.branch + ' · '),
-              Text(git.changed > 0 ? { color: 'yellow', children: [git.changed + ' modificati'] } : { dimColor: true, children: ['0 modificati'] }),
-              dim(' · '),
-              Text(git.ahead > 0 ? { color: 'yellow', children: [git.ahead + ' da pushare'] } : { dimColor: true, children: ['0 da pushare'] }),
-            ],
-          })
     // Niente props indefinite: il colore è scelto prima
     const paint = (text, color) => Text(color ? { color, children: [text] } : { dimColor: true, children: [text] })
     const barWidth = e.props.bodyColumns >= 110 ? 12 : 8
@@ -469,7 +457,7 @@ export function register(on) {
     const lines = [memory, usageRow, sessionRow]
     return Box({
       flexDirection: 'column',
-      children: (e.props.isWorking ? [...lines, theirs] : [...lines, coldWarn, gitLine, buttons, theirs]).filter(Boolean),
+      children: (e.props.isWorking ? [...lines, theirs] : [...lines, coldWarn, buttons, theirs]).filter(Boolean),
     })
   })
 }
