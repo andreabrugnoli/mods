@@ -304,6 +304,23 @@ test('le finestre mostrano la scadenza e il limite di spesa', async ($, on) => {
   expect(out.text).toContain('uso settimana · 28%, scade lun 12 ott 09:05')
 })
 
+test('una finestra non nota compare con il suo nome e la scadenza', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-07T10:00:00') })
+  stubStep(on)
+  on('session.measure', () => ({ changed: [] }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  await runStep($)
+  await $.session.measure({
+    context: { tokens: 91000, window: 200000, percent: 45 },
+    rateLimits: [{ kind: 'monthly', percentUsed: 12, resetsAt: '2026-11-01T00:00:00' }],
+    cost: { usd: 0.42 },
+    changed: ['rateLimits'],
+  })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '📆 limite monthly ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' scade dom 1 nov 00:00' })).toBeDefined()
+})
+
 test('/barra spegne e riaccende la banda', async ($, on) => {
   mock.clock(on, { now: 1000 })
   stubStep(on)

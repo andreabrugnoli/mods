@@ -1,6 +1,6 @@
 {
   "name": "barra-cache",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Sopra il prompt: memoria della chat, uso delle 5 ore, della settimana e limite di spesa con data di scadenza, durata della sessione, cache calda, stato della repo e bottoni Commit, Push e Handoff. /barra la accende e la spegne",
   "author": {
     "name": "Andrea Brugnoli"

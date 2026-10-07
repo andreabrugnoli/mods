@@ -69,6 +69,12 @@ function dollars(n) {
 const DAYS_IT = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab']
 const MONTHS_IT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
 
+// Il nome di una finestra di consumo: quelle note in italiano, le altre con il nome del motore
+function windowName(kind) {
+  const names = { five_hour: 'uso 5 ore', seven_day: 'uso settimana', spend_limit: 'limite di spesa' }
+  return names[kind] ?? 'limite ' + kind.replace(/_/g, ' ')
+}
+
 // Quando si rinnova una finestra, in ora locale: "14:30" se è oggi, altrimenti "lun 12 ott 14:30". Vuoto se la data manca o non è valida
 function resetLabel(resetsAt, nowMs) {
   const at = new Date(resetsAt ?? NaN)
@@ -127,10 +133,9 @@ function usageLines() {
   if (usage && usage.usd !== undefined) lines.push('sessione · ' + dollars(usage.usd))
   if (startedAt !== null) lines.push('sessione · ' + duration(Math.max(0, now - startedAt)))
   if (cacheReadPct !== null) lines.push('cache letta · ' + cacheReadPct + '% dell\'ultima richiesta')
-  const names = { five_hour: 'uso 5 ore', seven_day: 'uso settimana', spend_limit: 'limite di spesa' }
   for (const l of limits) {
     const reset = resetLabel(l.resetsAt, now)
-    lines.push((names[l.kind] ?? l.kind) + ' · ' + Math.round(l.percentUsed) + '%' + (reset ? ', scade ' + reset : ''))
+    lines.push(windowName(l.kind) + ' · ' + Math.round(l.percentUsed) + '%' + (reset ? ', scade ' + reset : ''))
   }
   return lines
 }
@@ -453,10 +458,14 @@ export function register(on) {
         reset && dim(' scade ' + reset),
       ])
     }
-    const five = limitRow('five_hour', '⏳', 'uso 5 ore')
-    const week = limitRow('seven_day', '📅', 'uso settimana')
-    const spend = limitRow('spend_limit', '💳', 'limite di spesa')
-    const windows = [five, week, spend].filter(Boolean)
+    // Le finestre note hanno un'etichetta; una finestra che il motore aggiunge in futuro (un mese, per esempio) compare con il suo nome
+    const known = ['five_hour', 'seven_day', 'spend_limit']
+    const windows = [
+      limitRow('five_hour', '⏳', 'uso 5 ore'),
+      limitRow('seven_day', '📅', 'uso settimana'),
+      limitRow('spend_limit', '💳', 'limite di spesa'),
+      ...limits.filter((l) => !known.includes(l.kind)).map((l) => limitRow(l.kind, '📆', windowName(l.kind))),
+    ].filter(Boolean)
     const usageRow = windows.length ? row(windows.flatMap((w, i) => (i === 0 ? [w] : [gap, w]))) : null
 
     // Riga 3: da quanto è aperta la sessione e quanto resta della cache
