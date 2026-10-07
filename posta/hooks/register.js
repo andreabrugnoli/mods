@@ -865,9 +865,9 @@ export function register(on) {
           children: [
             ...ACTIONS.flatMap((a) => [Button({ key: a.key, label: a.label, hotkey: a.hotkey, variant: a.key === 'bozza' ? 'primary' : undefined, onPress: act(a) }), Text({ children: [' '] })]),
             Text({ dimColor: true, children: [' │  '] }),
-            Button({ key: 'su', label: 'Su', hotkey: 'k', onPress: move(-1) }),
+            Button({ key: 'su', label: 'Su', hotkey: 'j', onPress: move(-1) }),
             Text({ children: [' '] }),
-            Button({ key: 'giu', label: 'Giù', hotkey: 'j', onPress: move(1) }),
+            Button({ key: 'giu', label: 'Giù', hotkey: 'k', onPress: move(1) }),
             Text({ dimColor: true, children: ['  │  '] }),
             failed && Button({ key: 'riprova', label: 'Riprova', hotkey: 'y', onPress: retry }),
             failed && Text({ children: [' '] }),
