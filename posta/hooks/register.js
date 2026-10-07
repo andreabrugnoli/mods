@@ -1,6 +1,9 @@
 // Quante mail dell'inbox mostrare per account
 const PAGE_SIZE = 12
 
+// I colori del puntino di ogni account
+const DOTS = ['cyan', 'magenta', 'yellow', 'green']
+
 // Quante mail mostrare insieme nella lista: il resto scorre con j e k
 const WINDOW = 5
 
@@ -69,6 +72,28 @@ let outcome = ''
 // I lavori in background: ogni azione parte come subagent e riferisce qui, senza riempire la chat
 // { id, label, status: 'corso' | 'fatto' | 'errore', note, box, mail, archived }
 const jobs = []
+
+// Il pannello mostra solo l'ultimo messaggio del thread; i precedenti si aprono a richiesta
+let showOlder = false
+
+// Spinner dei lavori in corso e durata dei lavori riusciti prima che spariscano dal pannello
+const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+const DONE_VISIBLE_MS = 8000
+let ticker = null
+
+// Fa girare lo spinner finché c'è un lavoro in corso e fa sparire i lavori riusciti dopo qualche secondo
+function tick($) {
+  if (ticker) return
+  ticker = setInterval(() => {
+    const running = jobs.some((j) => j.status === 'corso')
+    const fading = jobs.some((j) => j.status === 'fatto' && Date.now() - j.doneAt < DONE_VISIBLE_MS + 500)
+    if (!running && !fading) {
+      clearInterval(ticker)
+      ticker = null
+    }
+    $.ui.invalidate('ui.render')
+  }, 120)
+}
 
 // I testi già letti, per thread: undefined = non ancora chiesto, 'carico' = in arrivo
 const bodies = new Map()
@@ -216,17 +241,18 @@ export function buildPrompt(action, account, mail, text = '') {
     'Non usare notion-fetch, notion-search né altre letture: lo schema è qui. Proprietà da compilare tutte:\n- ' + TASKS_SCHEMA +
     '\nNon compilare Progetto e Contesto. Ora locale adesso: ' + nowLocal() + '. Scegli la scadenza in base alla mail, ' +
     'altrimenti domani alle 09:00. Nel corpo della pagina metti una riga con il link alla mail (' + (mail.url ?? 'senza link') + ') e due righe di contesto. ' +
-    'Poi archivia il thread con unlabel_thread togliendo INBOX.'
+    'Non archiviare il thread: deve restare in INBOX.'
   const parts = { bozza: [draft], label: [label], misto: [draft, label], task: [task] }[action]
   return ['Gestione posta.', mailLine, read, ...parts, 'Lavori in background: nessuna domanda e nessun testo lungo. Chiudi con una sola riga di esito (massimo 120 caratteri).'].join('\n')
 }
 
-// Le azioni dei bottoni: cosa fanno alla mail dopo l'invio (archiviata = esce dall'elenco)
+// Le azioni dei bottoni: cosa fanno alla mail dopo l'invio. Solo l'etichetta sposta la mail
+// (esce dall'inbox verso la cartella dell'etichetta); bozza e task la lasciano dov'è
 const ACTIONS = [
   { key: 'bozza', label: 'Bozza', hotkey: 'b', archives: false },
   { key: 'label', label: 'Label', hotkey: 'l', archives: true },
   { key: 'misto', label: 'Bozza+Label', hotkey: 'm', archives: true },
-  { key: 'task', label: 'Task', hotkey: 't', archives: true },
+  { key: 'task', label: 'Task', hotkey: 't', archives: false },
 ]
 
 // La mail selezionata nell'elenco piatto di tutti gli account
@@ -333,6 +359,7 @@ export function register(on) {
     if (job) {
       if (e.reason === 'answer') {
         job.status = 'fatto'
+        job.doneAt = Date.now()
         job.note = clip(e.answer, 160)
         $.ui.toast('posta: ' + job.label + ' fatto')
         $.ui.invalidate('ui.render')
@@ -354,11 +381,13 @@ export function register(on) {
     const move = (step) => () => {
       if (!all.length) return
       cursor = (cursor + step + all.length) % all.length
+      showOlder = false
       void loadBody($, all[cursor])
       $.ui.invalidate('ui.render')
     }
 
     const refresh = async () => {
+      showOlder = false
       bodies.clear()
       await load($)
       void loadBody($, flat()[0])
@@ -367,12 +396,13 @@ export function register(on) {
 
     // Il bottone avvia un subagent in background e toglie la mail dall'elenco se l'azione la archivia;
     // l'esito compare nel pannello e in un avviso, la chat resta pulita
-    const act = (action) => async () => {
-      if (!current) return
-      const { account } = current.box
-      const { box, mail } = current
-      const job = { id: null, label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives }
+    const act = (action, target = current) => async () => {
+      if (!target) return
+      const { account } = target.box
+      const { box, mail } = target
+      const job = { id: null, label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives, action }
       jobs.push(job)
+      tick($)
       if (action.archives) {
         box.mails = box.mails.filter((m) => m !== mail)
         cursor = Math.min(cursor, Math.max(0, flat().length - 1))
@@ -380,11 +410,14 @@ export function register(on) {
       }
       $.ui.invalidate('ui.render')
       try {
-        const res = await $.agent.spawn({
+        const request = {
           prompt: buildPrompt(action.key, account, mail, threadText(bodies.get(mail.threadId))),
           description: 'posta: ' + action.label,
           model: action.key === 'bozza' || action.key === 'misto' ? undefined : 'haiku',
-        })
+        }
+        let res = await $.agent.spawn(request)
+        // Il classificatore della modalità auto a volte non dà verdetto: l'esito è transitorio, si riprova una volta
+        if (res.deny && /no verdict/i.test(String(res.deny))) res = await $.agent.spawn(request)
         if (res.deny) failJob($, job, String(res.deny))
         else job.id = res.agentId
       } catch (err) {
@@ -393,23 +426,49 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
 
+    // Riprova l'ultimo lavoro fallito: seleziona la sua mail e rilancia la stessa azione
+    const failed = jobs.findLast((j) => j.status === 'errore')
+    const retry = () => {
+      if (!failed) return
+      const idx = flat().findIndex((x) => x.mail === failed.mail)
+      if (idx < 0) return
+      jobs.splice(jobs.indexOf(failed), 1)
+      cursor = idx
+      return act(failed.action, flat()[idx])()
+    }
+
     // La lista: una finestra di poche righe che scorre con la selezione, con l'intestazione di ogni account
     const top = Math.min(Math.max(0, cursor - Math.floor(WINDOW / 2)), Math.max(0, all.length - WINDOW))
     const shown = all.slice(top, top + WINDOW)
     const list = []
     let lastBox = null
     shown.forEach((item, i) => {
+      const dot = DOTS[boxes.indexOf(item.box) % DOTS.length]
       if (item.box !== lastBox) {
         lastBox = item.box
-        list.push(Text({ key: 'h-' + item.box.account.name + i, bold: true, children: [item.box.account.email + ' · ' + item.box.mails.length + ' mail'] }))
+        list.push(
+          Box({
+            key: 'h-' + item.box.account.name + i,
+            flexDirection: 'row',
+            children: [
+              Text({ color: dot, bold: true, children: ['● '] }),
+              Text({ bold: true, children: [item.box.account.email] }),
+              Text({ dimColor: true, children: ['  ' + item.box.mails.length + ' mail'] }),
+            ],
+          }),
+        )
       }
       const selected = top + i === cursor
       list.push(
-        Text({
+        Box({
           key: 'm-' + (top + i),
-          bold: selected,
-          dimColor: !selected,
-          children: [(selected ? '▸ ' : '  ') + formatWhen(item.mail.date).padEnd(5) + '  ' + clip(shortSender(item.mail.sender), 16).padEnd(16) + '  ' + clip(item.mail.subject, 90)],
+          flexDirection: 'row',
+          children: [
+            Text({ color: selected ? dot : undefined, bold: true, children: [selected ? '▌' : ' '] }),
+            Text({ inverse: selected, dimColor: !selected, children: [' ' + formatWhen(item.mail.date).padEnd(5) + ' '] }),
+            Text({ inverse: selected, bold: true, children: [' ' + clip(shortSender(item.mail.sender), 16).padEnd(16) + ' '] }),
+            Text({ inverse: selected, bold: selected, dimColor: !selected, children: [' ' + clip(item.mail.subject, 90) + ' '] }),
+          ],
         }),
       )
     })
@@ -424,16 +483,40 @@ export function register(on) {
     } else if (body.error) {
       detail.push(Text({ key: 'err', color: 'red', children: ['errore: ' + body.error] }))
     } else {
-      body.forEach((m, i) => {
-        if (i > 0) detail.push(Text({ key: 'sep-' + i, dimColor: true, children: ['── messaggio precedente ──'] }))
-        detail.push(Text({ key: 'da-' + i, bold: true, children: ['Da:      ' + m.from] }))
-        detail.push(Text({ key: 'a-' + i, children: ['A:       ' + m.to] }))
-        detail.push(Text({ key: 'dt-' + i, children: ['Data:    ' + formatLong(m.date)] }))
-        detail.push(Text({ key: 'og-' + i, bold: true, children: ['Oggetto: ' + (m.subject ?? current.mail.subject)] }))
+      const block = (m, i) => {
+        detail.push(
+          Box({
+            key: 'da-' + i,
+            flexDirection: 'row',
+            children: [Text({ bold: true, children: [m.from] }), Text({ dimColor: true, children: ['  ' + formatLong(m.date)] })],
+          }),
+        )
+        detail.push(Text({ key: 'a-' + i, dimColor: true, children: ['A: ' + m.to] }))
+        detail.push(Text({ key: 'og-' + i, bold: true, children: [m.subject ?? current.mail.subject] }))
         detail.push(Text({ key: 'sp-' + i, children: [' '] }))
         detail.push(Text({ key: 'tx-' + i, children: [m.body || '(vuoto)'] }))
         if (m.attachments.length) detail.push(Text({ key: 'al-' + i, dimColor: true, children: ['Allegati: ' + m.attachments.join(', ')] }))
-      })
+      }
+      block(body[0], 0)
+      if (body.length > 1) {
+        detail.push(
+          Button({
+            key: 'precedenti',
+            label: showOlder ? 'Nascondi precedenti' : 'Mostra ' + (body.length - 1) + (body.length === 2 ? ' precedente' : ' precedenti'),
+            hotkey: 'p',
+            onPress: () => {
+              showOlder = !showOlder
+              $.ui.invalidate('ui.render')
+            },
+          }),
+        )
+        body.slice(1).forEach((m, k) => {
+          const i = k + 1
+          detail.push(Text({ key: 'sep-' + i, dimColor: true, children: ['┄'.repeat(Math.max(10, Math.min(120, e.props.bodyColumns ?? 60)))] }))
+          if (showOlder) block(m, i)
+          else detail.push(Text({ key: 'riga-' + i, dimColor: true, children: ['▸ ' + clip(shortSender(m.from), 16) + ' · ' + formatWhen(m.date) + ' · ' + clip(String(m.body ?? '').replace(/\s+/g, ' '), 70)] }))
+        })
+      }
     }
 
     const errors = boxes.filter((box) => box.error)
@@ -445,27 +528,35 @@ export function register(on) {
         rule,
         ...list,
         rule,
-        ...jobs.slice(-4).map((j, i) =>
-          Text({
-            key: 'job-' + i,
-            color: j.status === 'errore' ? 'red' : undefined,
-            dimColor: j.status === 'fatto',
-            children: [(j.status === 'corso' ? '⏳ ' : j.status === 'fatto' ? '✓ ' : '✗ ') + j.label + (j.note ? ' · ' + j.note : '')],
-          }),
-        ),
+        ...jobs
+          .filter((j) => j.status !== 'fatto' || Date.now() - j.doneAt < DONE_VISIBLE_MS)
+          .slice(-4)
+          .map((j, i) =>
+            Text({
+              key: 'job-' + i,
+              color: j.status === 'errore' ? 'red' : j.status === 'fatto' ? 'green' : undefined,
+              dimColor: j.status === 'corso',
+              children: [
+                (j.status === 'corso' ? SPIN[Math.floor(Date.now() / 120) % SPIN.length] : j.status === 'fatto' ? '✓' : '✗') + ' ' + j.label +
+                  (j.note ? ' · ' + j.note : '') + (j.status === 'errore' ? '  (premi y per riprovare)' : ''),
+              ],
+            }),
+          ),
         Box({
           flexDirection: 'row',
           children: [
             ...ACTIONS.flatMap((a) => [Button({ key: a.key, label: a.label, hotkey: a.hotkey, variant: a.key === 'bozza' ? 'primary' : undefined, onPress: act(a) }), Text({ children: [' '] })]),
-            Text({ children: ['  '] }),
+            Text({ dimColor: true, children: [' │  '] }),
             Button({ key: 'su', label: 'Su', hotkey: 'k', onPress: move(-1) }),
             Text({ children: [' '] }),
             Button({ key: 'giu', label: 'Giù', hotkey: 'j', onPress: move(1) }),
-            Text({ children: ['  '] }),
+            Text({ dimColor: true, children: ['  │  '] }),
+            failed && Button({ key: 'riprova', label: 'Riprova', hotkey: 'y', onPress: retry }),
+            failed && Text({ children: [' '] }),
             Button({ key: 'aggiorna', label: 'Aggiorna', hotkey: 'r', onPress: refresh }),
             Text({ children: [' '] }),
             Button({ key: 'chiudi', label: 'Chiudi', hotkey: 'x', onPress: () => setOpen($, false) }),
-          ],
+          ].filter(Boolean),
         }),
         rule,
         ...detail,
