@@ -1,6 +1,6 @@
 {
   "name": "posta",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Mostra la inbox degli account Gmail configurati e, per ogni mail, i bottoni Bozza, Label, Bozza+Label e Task. /posta la apre e la chiude",
   "author": {
     "name": "Andrea Brugnoli"

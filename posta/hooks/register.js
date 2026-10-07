@@ -43,6 +43,17 @@ async function callGmail($, account, tool, args) {
   return { isError: true, content: [{ type: 'text', text: failures.join(' | ') || 'nessun connettore Gmail trovato' }] }
 }
 
+// Il database Tasks di Notion: letto una volta, così il modello non lo cerca a ogni task
+const TASKS_DB = '1ee13fe7-1a52-8195-9008-000b5e44714d'
+const TASKS_SCHEMA = [
+  'Task (titolo): cosa fare, breve e all\'infinito.',
+  'date:Data:start: data e ora di scadenza in ISO con fuso (ad esempio 2026-10-08T09:00:00+02:00); date:Data:is_datetime: 1. Sempre presente.',
+  'Urgenza (select): "Urgente", "Non urgente" oppure "Routine".',
+  'Importanza (select): "Importante", "Non importante" oppure "Strategico".',
+  'Impegno (select): "Flusso", "Facile", "Veloce" oppure "Personale".',
+  '" " (lo Stato, una colonna con nome uno spazio): "Non iniziato".',
+].join('\n- ')
+
 // Le regole di scrittura delle bozze, lette dal modello quando serve
 const RULES_FILE = '~/.claude/mods-data/posta/sistematore.md'
 
@@ -164,13 +175,32 @@ export function parseThreads(result) {
   })
 }
 
+// Il testo del thread già letto dalla mod, da dare al modello al posto di una nuova lettura
+export function threadText(body, limit = 6000) {
+  if (!Array.isArray(body) || !body.length) return ''
+  return body
+    .map((m) => ['Da: ' + m.from, 'Data: ' + formatLong(m.date), 'Oggetto: ' + m.subject, '', m.body].join('\n'))
+    .join('\n\n---\n\n')
+    .slice(0, limit)
+}
+
+// L'ora locale di adesso con il fuso, per dare al modello un riferimento per le scadenze
+export function nowLocal(d = new Date()) {
+  const two = (n) => String(n).padStart(2, '0')
+  const off = -d.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + 'T' + two(d.getHours()) + ':' + two(d.getMinutes()) + sign + two(Math.floor(Math.abs(off) / 60)) + ':' + two(Math.abs(off) % 60)
+}
+
 // Il prompt che un bottone invia al modello. Bozza, etichetta e task passano da lui:
 // servono giudizio (scrivere, scegliere l'etichetta, compilare i campi)
-export function buildPrompt(action, account, mail) {
+export function buildPrompt(action, account, mail, text = '') {
   const mailLine =
     'Mail: account ' + account.email + ' (connettore Gmail "' + (serverList(account)[0] ?? 'Gmail') + '", se non risponde usa quello disponibile), thread ' + mail.threadId +
     ', messaggio ' + mail.messageId + ', da ' + mail.sender + ', oggetto "' + mail.subject + '".'
-  const read = 'Leggi il thread completo con get_thread prima di agire.'
+  const read = text
+    ? 'Testo del thread (già letto, non rileggerlo):\n<<<\n' + text + '\n>>>'
+    : 'Leggi il thread completo con get_thread prima di agire.'
   const draft =
     'BOZZA: scrivi la risposta seguendo le regole in ' + RULES_FILE + ' e crea una bozza di risposta con create_draft ' +
     '(replyToMessageId = ' + mail.messageId + '). Nella bozza metti solo il blocco "Email ottimizzata". Non inviare mai la mail.'
@@ -178,9 +208,11 @@ export function buildPrompt(action, account, mail) {
     'LABEL: con list_labels leggi le etichette dell\'account e applica con label_thread quella più pertinente tra le ' +
     'esistenti. Non creare etichette nuove. Poi archivia il thread con unlabel_thread togliendo INBOX.'
   const task =
-    'TASK: crea un task in Notion nel database Tasks sotto Backend (non toccare i database con prefisso CB-). ' +
-    'Leggi prima lo schema reale con notion-fetch e compila tutti i campi. Il task ha sempre data con giorno e ora. ' +
-    'Il titolo (Name) descrive cosa fare, con un link alla mail. Poi archivia il thread con unlabel_thread togliendo INBOX.'
+    'TASK: crea un task con notion-create-pages nel data source ' + TASKS_DB + ' (database Tasks). ' +
+    'Non usare notion-fetch, notion-search né altre letture: lo schema è qui. Proprietà da compilare tutte:\n- ' + TASKS_SCHEMA +
+    '\nNon compilare Progetto e Contesto. Ora locale adesso: ' + nowLocal() + '. Scegli la scadenza in base alla mail, ' +
+    'altrimenti domani alle 09:00. Nel corpo della pagina metti una riga con il link alla mail (' + (mail.url ?? 'senza link') + ') e due righe di contesto. ' +
+    'Poi archivia il thread con unlabel_thread togliendo INBOX.'
   const parts = { bozza: [draft], label: [label], misto: [draft, label], task: [task] }[action]
   return ['Gestione posta.', mailLine, read, ...parts, 'Chiudi con una riga di esito.'].join('\n')
 }
@@ -305,7 +337,7 @@ export function register(on) {
         void loadBody($, flat()[cursor])
       }
       $.ui.invalidate('ui.render')
-      return $.prompt.submit({ text: buildPrompt(action.key, account, mail), asUser: true })
+      return $.prompt.submit({ text: buildPrompt(action.key, account, mail, threadText(bodies.get(mail.threadId))), asUser: true })
     }
 
     // La lista: una finestra di poche righe che scorre con la selezione, con l'intestazione di ogni account

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { buildPrompt, cleanBody, formatLong, formatWhen, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender } from '../hooks/register.js'
+import { buildPrompt, cleanBody, formatLong, formatWhen, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, threadText, nowLocal } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -48,7 +48,7 @@ test('il prompt della bozza non invia e quello del task chiede data e ora', () =
   const account = { name: 'hello', email: 'hello@a.it', server: 'claude.ai Gmail' }
   const mail = { threadId: 't1', messageId: 'm1', sender: 'Ada', subject: 'Preventivo' }
   expect(buildPrompt('bozza', account, mail)).toContain('Non inviare mai la mail')
-  expect(buildPrompt('task', account, mail)).toContain('data con giorno e ora')
+  expect(buildPrompt('task', account, mail)).toContain('data e ora di scadenza')
   expect(buildPrompt('misto', account, mail)).toContain('create_draft')
   expect(buildPrompt('misto', account, mail)).toContain('list_labels')
   expect(formatWhen('data sbagliata')).toBe('')
@@ -147,4 +147,18 @@ test('scrivere posta apre il pannello senza arrivare al modello', async ($, on) 
   const out = await $.prompt.submit({ text: 'posta', asUser: true })
   expect(reachedModel).toBe(false)
   expect(JSON.stringify(out)).toContain('aperta')
+})
+
+test('il prompt del task contiene database e campi e non chiede letture', () => {
+  const account = { name: 'hello', email: 'hello@a.it', server: 'Gmail' }
+  const mail = { threadId: 't1', messageId: 'm1', sender: 'Ada', subject: 'Preventivo', url: 'https://mail/x' }
+  const text = threadText([{ from: 'Ada', date: '2026-10-07T08:00:00Z', subject: 'Preventivo', body: 'Mandami il preventivo entro venerdì' }])
+  const prompt = buildPrompt('task', account, mail, text)
+  expect(prompt).toContain('1ee13fe7-1a52-8195-9008-000b5e44714d')
+  expect(prompt).toContain('Non usare notion-fetch')
+  expect(prompt).toContain('Mandami il preventivo entro venerdì')
+  expect(prompt).not.toContain('Leggi il thread completo con get_thread')
+  expect(prompt).toContain('Non iniziato')
+  expect(buildPrompt('task', account, mail)).toContain('get_thread')
+  expect(nowLocal(new Date(2026, 9, 7, 9, 5))).toMatch(/^2026-10-07T09:05[+-]\d\d:\d\d$/)
 })
