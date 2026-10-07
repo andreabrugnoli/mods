@@ -201,7 +201,40 @@ function leftColor(minutes) {
   return 'red'
 }
 
+// Gestori dei comandi, a livello di modulo: ognuno è agganciato sia a /nome sia a /barra-cache:nome
+async function runBarra($, e) {
+  enabled = parseToggle(e.args, enabled)
+  try {
+    await $.store.set('attiva', enabled)
+  } catch {}
+  if (enabled) void refreshGit($)
+  $.ui.invalidate('ui.render')
+  return { text: 'barra-cache · ' + (enabled ? 'accesa' : 'spenta') }
+}
+
+async function runCache($) {
+  const extra = usageLines()
+  const join = (first) => [first, ...extra].join('\n')
+  if (lastAt === null) return { text: join('cache · in attesa della prima richiesta') }
+  const t = await $.clock.now()
+  const leftMs = Math.max(0, ttlMs - (t - lastAt))
+  if (leftMs === 0) return { text: join('cache scaduta: la prossima richiesta la riscrive') }
+  const minutes = Math.ceil(leftMs / 60000)
+  return { text: join('cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta') }
+}
+
+async function runPush() {
+  queued = 'push'
+  return { text: 'Push avviato.' }
+}
+
+async function runHandoff() {
+  queued = 'nuova'
+  return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
+}
+
 export function register(on) {
+
   // Gli stessi servizi come comandi, per le superfici che non disegnano la banda
   on('session.start', async ($, e, next) => {
     // Un ricaricamento della mod o una ripresa della stessa sessione non azzerano la barra
@@ -239,38 +272,16 @@ export function register(on) {
     return next(e)
   })
 
-  on('command.run', { command: 'barra' }, async ($, e) => {
-    enabled = parseToggle(e.args, enabled)
-    try {
-      await $.store.set('attiva', enabled)
-    } catch {}
-    if (enabled) void refreshGit($)
-    $.ui.invalidate('ui.render')
-    return { text: 'barra-cache · ' + (enabled ? 'accesa' : 'spenta') }
-  })
-
-  on('command.run', { command: 'cache' }, async ($) => {
-    const extra = usageLines()
-    const join = (first) => [first, ...extra].join('\n')
-    if (lastAt === null) return { text: join('cache · in attesa della prima richiesta') }
-    const t = await $.clock.now()
-    const leftMs = Math.max(0, ttlMs - (t - lastAt))
-    if (leftMs === 0) return { text: join('cache scaduta: la prossima richiesta la riscrive') }
-    const minutes = Math.ceil(leftMs / 60000)
-    return { text: join('cache · ' + minutes + ' min rimasti, ' + (60 - minutes) + ' min dall\'ultima richiesta') }
-  })
-
-  on('command.run', { command: 'push' }, async ($) => {
-    queued = 'push'
-    return { text: 'Push avviato.' }
-  })
-
-  for (const command of ['nuova', 'handoff']) {
-    on('command.run', { command }, async ($) => {
-      queued = 'nuova'
-      return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
-    })
-  }
+  on('command.run', { command: 'barra' }, runBarra)
+  on('command.run', { command: 'barra-cache:barra' }, runBarra)
+  on('command.run', { command: 'cache' }, runCache)
+  on('command.run', { command: 'barra-cache:cache' }, runCache)
+  on('command.run', { command: 'push' }, runPush)
+  on('command.run', { command: 'barra-cache:push' }, runPush)
+  on('command.run', { command: 'nuova' }, runHandoff)
+  on('command.run', { command: 'barra-cache:nuova' }, runHandoff)
+  on('command.run', { command: 'handoff' }, runHandoff)
+  on('command.run', { command: 'barra-cache:handoff' }, runHandoff)
 
   // Dopo il riassunto: svuota la chat e riparte dal file. Il comando va in coda, non si attende dentro il turno
   on('turn.complete', async ($, e, next) => {
