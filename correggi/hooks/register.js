@@ -90,8 +90,8 @@ export function register(on) {
   })
 
   on('command.run', { command: 'correggi' }, runCorreggi)
-  // Il comando statico del plugin si chiama anche correggi:correggi
-  on('command.run', { command: 'correggi:correggi' }, runCorreggi)
+  // Il comando statico del plugin si chiama anche correggi:inciampi
+  on('command.run', { command: 'correggi:inciampi' }, runCorreggi)
 
   on('session.start', async ($, e, next) => {
     try {

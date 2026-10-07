@@ -311,8 +311,8 @@ export function register(on) {
   })
 
   on('command.run', { command: 'posta' }, runPosta)
-  // Il comando statico del plugin si chiama anche posta:posta
-  on('command.run', { command: 'posta:posta' }, runPosta)
+  // Il comando statico del plugin si chiama anche posta:apri
+  on('command.run', { command: 'posta:apri' }, runPosta)
 
   // Scrivere "posta" (senza barra) apre o chiude il pannello: non arriva al modello e non consuma token
   on('prompt.submit', async ($, e, next) => {

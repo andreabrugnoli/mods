@@ -213,8 +213,8 @@ export function register(on) {
   })
 
   on('command.run', { command: 'rec' }, runRec)
-  // Il comando statico del plugin si chiama anche rec:rec
-  on('command.run', { command: 'rec:rec' }, runRec)
+  // Il comando statico del plugin si chiama anche rec:registra
+  on('command.run', { command: 'rec:registra' }, runRec)
 
   // Claude legge una nota accanto a ogni prompt mentre si registra, e una in più quando finisce
   on('prompt.submit', async ($, e, next) => {
