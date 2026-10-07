@@ -123,6 +123,13 @@ const COMMIT_PROMPT =
 // Il prompt del push quando git non è raggiungibile
 const PUSH_PROMPT = 'Esegui ora git push sul branch corrente (git push -u origin <branch> se manca l\'upstream). Non modificare altro.'
 
+// Il prompt del bottone "Crea repo": cartella senza git, repo GitHub sempre privata
+const CREATE_REPO_PROMPT =
+  'Questa cartella non è una repo git. Esegui ora: git init (branch main), un .gitignore adatto se manca, git add delle sole modifiche pertinenti, un primo commit con messaggio breve in italiano, poi gh repo create <nome-cartella-in-kebab-case> --private --source . --push. Prima di aggiungere, controlla i file: se ci sono file sensibili (.env, chiavi, token, credenziali, certificati), non aggiungerli e chiedimi conferma. Non rendere mai pubblica la repo. Non modificare altro.'
+
+// Vero quando la cartella non è dentro una repo git (git risponde, ma con "not a git repository")
+let noRepo = false
+
 // Lo stato della repo letto da git: { branch, changed, ahead, hasUpstream }, null se non disponibile
 // (fuori da una repo, o dove $.process non esiste, come nelle sessioni cloud)
 let git = null
@@ -139,10 +146,12 @@ function parseGit(stdout) {
 // Rilegge lo stato; in caso di errore la banda torna ai bottoni che passano dal modello
 async function refreshGit($) {
   try {
-    const { exitCode, stdout } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'])
+    const { exitCode, stdout, stderr } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'])
     git = exitCode === 0 ? parseGit(stdout) : null
+    noRepo = exitCode !== 0 && /not a git repository/i.test(stderr ?? '')
   } catch {
     git = null
+    noRepo = false
   }
   $.ui.invalidate('ui.render')
 }
@@ -375,10 +384,12 @@ export function register(on) {
     const buttons = Box({
       flexDirection: 'row',
       children: [
-        hasChanges && Button({ key: 'commit', label: 'Commit e push', hotkey: 'g', onPress: () => $.prompt.submit({ text: COMMIT_PROMPT }) }),
-        hasChanges && gap,
-        canPush && Button({ key: 'push', label: 'Push', hotkey: 'p', onPress: () => pushNow($) }),
-        canPush && gap,
+        noRepo && Button({ key: 'create-repo', label: 'Crea repo', hotkey: 'g', onPress: () => $.prompt.submit({ text: CREATE_REPO_PROMPT }) }),
+        noRepo && gap,
+        !noRepo && hasChanges && Button({ key: 'commit', label: 'Commit e push', hotkey: 'g', onPress: () => $.prompt.submit({ text: COMMIT_PROMPT }) }),
+        !noRepo && hasChanges && gap,
+        !noRepo && canPush && Button({ key: 'push', label: 'Push', hotkey: 'p', onPress: () => pushNow($) }),
+        !noRepo && canPush && gap,
         Button({
           key: 'fresh',
           label: 'Handoff',
