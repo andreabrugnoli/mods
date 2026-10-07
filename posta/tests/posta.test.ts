@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cleanBody, formatLong, formatWhen, matchLabel, nowLocal, parseJson, parseLabels, parseNextToken, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, taskFields, threadText, tomorrowNine } from '../hooks/register.js'
+import { buildLabelDb, cleanBody, findLabels, labelTree, pickByNumbers, formatLong, formatWhen, matchLabel, nowLocal, parseJson, parseLabels, parseNextToken, parseThread, parseThreads, parseToggle, senderName, serverList, shortSender, taskFields, threadText, tomorrowNine } from '../hooks/register.js'
 
 const BAND = {
   plugin: 'posta',
@@ -125,18 +125,29 @@ function fakeWorld(on: (event: any, hook: any) => void, modelText: (e: any) => s
   return calls
 }
 
-test('Label applica una etichetta esistente e toglie INBOX, senza subagent', async ($, on) => {
-  const calls = fakeWorld(on, () => 'Lavoro/Esami Finanza')
+test('Label propone senza scrivere, poi Sì applica l\'etichetta e toglie INBOX', async ($, on) => {
+  const calls = fakeWorld(on, () => '2, 1')
   await $.command.run({ command: 'posta', args: 'aggiorna' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await ui.press({ key: 'label' })
-  const label = calls.find((c) => c.tool === 'label_thread')
-  expect(label?.args).toEqual({ threadId: 't1', labelIds: ['Label_64'] })
+  expect(calls.some((c) => c.tool === 'label_thread' || c.tool === 'unlabel_thread')).toBe(false)
+  await ui.press({ key: 'p-Label_64' })
+  expect(calls.find((c) => c.tool === 'label_thread')?.args).toEqual({ threadId: 't1', labelIds: ['Label_64'] })
   expect(calls.find((c) => c.tool === 'unlabel_thread')?.args).toEqual({ threadId: 't1', labelIds: ['INBOX'] })
   await ui.unmount()
 })
 
-test('Label con una etichetta inventata non scrive nulla e rimette la mail in elenco', async ($, on) => {
+test('Label: l\'utente scrive un\'etichetta e si applica quella trovata', async ($, on) => {
+  const calls = fakeWorld(on, () => '2')
+  await $.command.run({ command: 'posta', args: 'aggiorna' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'label' })
+  await ui.input({ key: 'p-altra', text: 'consulenza' })
+  expect(calls.find((c) => c.tool === 'label_thread')?.args).toEqual({ threadId: 't1', labelIds: ['Label_19'] })
+  await ui.unmount()
+})
+
+test('Label con una risposta senza numeri non scrive nulla e rimette la mail in elenco', async ($, on) => {
   const calls = fakeWorld(on, () => 'Etichetta che non esiste')
   await $.command.run({ command: 'posta', args: 'aggiorna' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -229,4 +240,20 @@ test('giù scorre oltre la finestra, il bottone agisce sulla mail selezionata e 
   expect(drafts.at(-1)?.replyToMessageId).toBe('m7')
   await ui.press({ key: 'chiudi' })
   expect(closed).toContain('posta')
+})
+
+test('la mappatura delle etichette conosce le sottoetichette e le trova a pezzi', () => {
+  const db = buildLabelDb([
+    { id: 'a', name: 'Lavoro/AI news' },
+    { id: 'b', name: 'Lavoro' },
+    { id: 'c', name: 'Pagamenti/AI tools (Anthropic - Open AI)' },
+  ])
+  expect(db.map((l) => l.id)).toEqual(['b', 'a', 'c'])
+  expect(db[1]).toMatchObject({ depth: 1, leaf: 'AI news' })
+  expect(labelTree(db)).toContain('  AI news  [a]')
+  expect(findLabels('lavoro/ai news', db)[0].id).toBe('a')
+  expect(findLabels('ai news', db)[0].id).toBe('a')
+  expect(findLabels('lavoro', db)[0].id).toBe('b')
+  expect(findLabels('zzz', db)).toEqual([])
+  expect(pickByNumbers('2, 1, 9, 2', db).map((l) => l.id)).toEqual(['a', 'b'])
 })

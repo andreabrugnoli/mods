@@ -294,6 +294,56 @@ export function matchLabel(answer, labels) {
   return labels.find((l) => l.name.toLowerCase() === a) ?? null
 }
 
+// La mappatura delle etichette di un account: ordinate per nome, con il percorso a livelli
+// (le sottoetichette di Gmail sono nomi con la barra, "Lavoro/AI news")
+export function buildLabelDb(labels) {
+  return [...labels]
+    .sort((a, b) => a.name.localeCompare(b.name, 'it'))
+    .map((l) => {
+      const path = l.name.split('/')
+      return { id: l.id, name: l.name, path, depth: path.length - 1, leaf: path[path.length - 1] }
+    })
+}
+
+// La mappatura come albero di testo, da tenere in un file leggibile
+export function labelTree(db) {
+  return db.map((l) => '  '.repeat(l.depth) + l.leaf + '  [' + l.id + ']').join('\n') + '\n'
+}
+
+// Le etichette che corrispondono a quello che l'utente ha scritto, le più precise per prime:
+// nome intero, ultimo livello, fine del percorso, poi qualunque pezzo del nome
+export function findLabels(query, db, max = 6) {
+  const q = String(query ?? '').trim().replace(/^["'`]+|["'`.]+$/g, '').trim().toLowerCase()
+  if (!q) return []
+  const rank = (l) => {
+    const name = l.name.toLowerCase()
+    const leaf = l.leaf.toLowerCase()
+    if (name === q) return 0
+    if (leaf === q) return 1
+    if (name.endsWith('/' + q)) return 2
+    if (leaf.startsWith(q)) return 3
+    if (name.includes(q)) return 4
+    return -1
+  }
+  return db
+    .map((l) => ({ l, r: rank(l) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r)
+    .slice(0, max)
+    .map((x) => x.l)
+}
+
+// Le etichette scelte dal modello: numeri dell'elenco (anche più d'uno), in ordine, senza doppioni
+export function pickByNumbers(answer, db, max = 3) {
+  const picked = []
+  for (const n of String(answer ?? '').match(/\d+/g) ?? []) {
+    const l = db[Number(n) - 1]
+    if (l && !picked.includes(l)) picked.push(l)
+    if (picked.length === max) break
+  }
+  return picked
+}
+
 // Una completion senza tool: il modello propone, il codice decide cosa scrivere
 async function ask($, request) {
   const r = await $.model.complete({ timeoutMs: 90000, ...request })
@@ -344,19 +394,42 @@ async function doDraft($, account, mail, text) {
   return 'bozza creata'
 }
 
-// LABEL: il modello sceglie tra le etichette esistenti, il codice la applica e toglie INBOX
-async function doLabel($, account, mail, text) {
-  const labels = parseLabels(await must($, account, 'list_labels', {}, 'lettura etichette'))
-  if (!labels.length) throw new Error('nessuna etichetta trovata')
+// Le etichette di ogni account, per nome dell'account: la mappatura si legge una volta,
+// si ricorda tra sessioni nello store e si scrive anche in un file leggibile
+const labelDbs = new Map()
+const LABELS_FILE = '/.claude/mods-data/posta/etichette.md'
+
+async function ensureLabels($, account, force = false) {
+  if (!force && labelDbs.get(account.name)?.length) return labelDbs.get(account.name)
+  const db = buildLabelDb(parseLabels(await must($, account, 'list_labels', {}, 'lettura etichette')))
+  if (!db.length) throw new Error('nessuna etichetta trovata')
+  labelDbs.set(account.name, db)
+  try {
+    await $.store.set('labels', Object.fromEntries(labelDbs))
+    const home = (await $.env.get('HOME')) || ''
+    await $.fs.write(home + LABELS_FILE, '# Etichette Gmail (' + account.email + ')\n\n' + labelTree(db))
+  } catch {}
+  return db
+}
+
+// LABEL, primo tempo: il modello propone fino a tre etichette dell'elenco (per numero),
+// il codice non scrive nulla finché l'utente non conferma
+async function proposeLabels($, account, text) {
+  const db = await ensureLabels($, account)
   const answer = await ask($, {
     model: CHEAP_MODEL,
     effort: 'low',
-    maxTokens: 100,
-    system: 'Classifichi mail. Rispondi solo con il nome esatto di una etichetta dell\'elenco, nient\'altro.',
-    prompt: 'Etichette:\n' + labels.map((l) => l.name).join('\n') + '\n\nMail:\n<<<\n' + text.slice(0, 3000) + '\n>>>\n\nQuale etichetta è la più pertinente?',
+    maxTokens: 60,
+    system: 'Classifichi mail. Le etichette sono percorsi: scegli la più specifica che si adatta. Rispondi solo con i numeri delle tre etichette più pertinenti, separati da virgola, la migliore per prima.',
+    prompt: 'Etichette:\n' + db.map((l, i) => (i + 1) + '. ' + l.name).join('\n') + '\n\nMail:\n<<<\n' + text.slice(0, 3000) + '\n>>>\n\nQuali etichette?',
   })
-  const label = matchLabel(answer, labels)
-  if (!label) throw new Error('etichetta non riconosciuta: ' + clip(answer, 60))
+  const picked = pickByNumbers(answer, db)
+  if (!picked.length) throw new Error('nessuna etichetta proposta: ' + clip(answer, 60))
+  return picked
+}
+
+// LABEL, secondo tempo: applica l'etichetta scelta e toglie la mail dalla inbox
+async function applyLabel($, account, mail, label) {
   await must($, account, 'label_thread', { threadId: mail.threadId, labelIds: [label.id] }, 'etichetta')
   await must($, account, 'unlabel_thread', { threadId: mail.threadId, labelIds: ['INBOX'] }, 'archiviazione')
   return label.name
@@ -386,32 +459,36 @@ async function doTask($, mail, text) {
   return clip(f.title, 50) + ' · ' + formatLong(f.due)
 }
 
-// Esegue l'azione di un bottone: tutte le scritture partono dal codice, il modello sceglie solo i contenuti
+// Esegue l'azione di un bottone: tutte le scritture partono dal codice, il modello sceglie solo i contenuti.
+// Label e Bozza+Label non applicano nulla: restituiscono le etichette proposte, da confermare nel pannello
 export async function runAction($, key, account, mail) {
   // L'eliminazione non ha bisogno del testo: il thread va nel cestino di Gmail (recuperabile)
   if (key === 'elimina') {
     await must($, account, 'trash_thread', { threadId: mail.threadId }, 'eliminazione')
-    return 'nel cestino'
+    return { note: 'nel cestino' }
   }
   const text = await ensureText($, account, mail)
-  if (key === 'bozza') return doDraft($, account, mail, text)
-  if (key === 'label') return 'etichetta ' + (await doLabel($, account, mail, text))
-  if (key === 'misto') {
+  if (key === 'bozza') return { note: await doDraft($, account, mail, text) }
+  if (key === 'label' || key === 'misto') {
+    let note = ''
     // Se la bozza c'è già (un tentativo precedente si è fermato all'etichetta) non la si ripete
-    if (!mail.drafted) await doDraft($, account, mail, text)
-    mail.drafted = true
-    return 'bozza creata, etichetta ' + (await doLabel($, account, mail, text))
+    if (key === 'misto') {
+      if (!mail.drafted) await doDraft($, account, mail, text)
+      mail.drafted = true
+      note = 'bozza creata, '
+    }
+    return { proposals: await proposeLabels($, account, text), note }
   }
-  if (key === 'task') return 'task: ' + (await doTask($, mail, text))
+  if (key === 'task') return { note: 'task: ' + (await doTask($, mail, text)) }
   throw new Error('azione sconosciuta: ' + key)
 }
 
-// Le azioni dei bottoni: cosa fanno alla mail dopo l'invio. Solo l'etichetta sposta la mail
-// (esce dall'inbox verso la cartella dell'etichetta); bozza e task la lasciano dov'è
+// Le azioni dei bottoni: cosa fanno alla mail dopo l'invio. Esce dall'elenco subito solo l'eliminazione;
+// le etichette la spostano dopo la conferma, bozza e task la lasciano dov'è
 const ACTIONS = [
   { key: 'bozza', label: 'Bozza', hotkey: 'b', archives: false },
-  { key: 'label', label: 'Label', hotkey: 'l', archives: true },
-  { key: 'misto', label: 'Bozza+Label', hotkey: 'm', archives: true },
+  { key: 'label', label: 'Label', hotkey: 'l', archives: false },
+  { key: 'misto', label: 'Bozza+Label', hotkey: 'm', archives: false },
   { key: 'task', label: 'Task', hotkey: 't', archives: false },
   { key: 'elimina', label: 'Elimina', hotkey: 'd', archives: true },
 ]
@@ -478,6 +555,8 @@ async function setOpen($, want) {
   enabled = want
   if (want) {
     await load($)
+    // La mappatura delle etichette si aggiorna in background a ogni apertura
+    for (const account of accounts) void ensureLabels($, account, true).catch(() => {})
     await $.ui.open({ id: PANE, title: 'Posta', focus: true })
     void loadBody($, flat()[0])
   } else {
@@ -501,6 +580,8 @@ export function register(on) {
     try {
       const saved = await $.store.get('accounts')
       if (Array.isArray(saved) && saved.length) accounts = saved
+      const savedLabels = await $.store.get('labels')
+      if (savedLabels && typeof savedLabels === 'object') for (const [name, db] of Object.entries(savedLabels)) if (Array.isArray(db) && db.length) labelDbs.set(name, db)
     } catch {}
     const spec = { name: 'posta', description: 'Apre o chiude la inbox con i bottoni Bozza, Label e Task', argumentHint: '[on|off|aggiorna]', immediate: true }
     await $.command.register(spec)
@@ -531,7 +612,7 @@ export function register(on) {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     const all = flat()
     cursor = Math.min(cursor, Math.max(0, all.length - 1))
     const current = all[cursor]
@@ -554,13 +635,28 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
 
+    // Il lavoro riuscito: gli errori precedenti della stessa azione su questa mail non servono più
+    const succeed = (job, note) => {
+      job.note = clip(note, 160)
+      job.status = 'fatto'
+      job.doneAt = Date.now()
+      for (let i = jobs.length - 1; i >= 0; i--) {
+        const j = jobs[i]
+        if (j.status === 'errore' && j.action === job.action && j.mail.threadId === job.mail.threadId) jobs.splice(i, 1)
+      }
+      $.ui.toast('posta: ' + job.label + ' fatto')
+    }
+
     // Il bottone avvia l'azione in background e toglie la mail dall'elenco se l'azione la archivia;
-    // l'esito compare nel pannello e in un avviso, la chat resta pulita
+    // l'esito compare nel pannello e in un avviso, la chat resta pulita.
+    // Le azioni con etichetta si fermano a una proposta da confermare (stato 'attesa')
     const act = (action, target = current) => async () => {
       if (!target) return
       const { box, mail } = target
       // Un secondo tocco sulla stessa mail mentre l'azione gira non la ripete
       if (jobs.some((j) => j.status === 'corso' && j.mail === mail && j.action === action)) return
+      // Una proposta ancora aperta su questa mail viene sostituita
+      for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].status === 'attesa' && jobs[i].mail === mail) jobs.splice(i, 1)
       const job = { label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives, action }
       jobs.push(job)
       tick($)
@@ -571,24 +667,60 @@ export function register(on) {
       }
       $.ui.invalidate('ui.render')
       try {
-        job.note = clip(await runAction($, action.key, box.account, mail), 160)
-        job.status = 'fatto'
-        job.doneAt = Date.now()
-        // Riuscita: gli errori precedenti della stessa azione su questa mail non servono più
-        for (let i = jobs.length - 1; i >= 0; i--) {
-          const j = jobs[i]
-          if (j.status === 'errore' && j.action === action && j.mail.threadId === mail.threadId) jobs.splice(i, 1)
+        const out = await runAction($, action.key, box.account, mail)
+        if (out.proposals) {
+          job.status = 'attesa'
+          job.proposals = out.proposals
+          job.prefix = out.note
+          job.note = out.note + 'conferma l\'etichetta'
+        } else {
+          succeed(job, out.note)
         }
-        $.ui.toast('posta: ' + job.label + ' fatto')
       } catch (err) {
         failJob($, job, String(err?.message ?? err))
       }
       $.ui.invalidate('ui.render')
     }
 
+    // L'etichetta scelta (proposta o scritta): la mail esce dall'inbox e si applica in background
+    const choose = async (job, label) => {
+      job.status = 'corso'
+      job.archived = true
+      job.hint = ''
+      job.options = null
+      job.note = 'etichetta ' + label.name
+      job.box.mails = job.box.mails.filter((m) => m !== job.mail)
+      cursor = Math.min(cursor, Math.max(0, flat().length - 1))
+      void loadBody($, flat()[cursor])
+      tick($)
+      $.ui.invalidate('ui.render')
+      try {
+        await applyLabel($, job.box.account, job.mail, label)
+        succeed(job, (job.prefix ?? '') + 'etichetta ' + label.name)
+      } catch (err) {
+        failJob($, job, String(err?.message ?? err))
+      }
+      $.ui.invalidate('ui.render')
+    }
+
+    // Quello che l'utente scrive come etichetta: una corrispondenza sola si applica, più d'una si sceglie
+    const typed = (job) => (value) => {
+      const found = findLabels(value, labelDbs.get(job.box.account.name) ?? [])
+      if (found.length === 1) return choose(job, found[0])
+      job.options = found.length ? found : null
+      job.hint = found.length ? '' : String(value).trim() ? 'nessuna etichetta per "' + clip(value, 40) + '"' : ''
+      $.ui.invalidate('ui.render')
+    }
+
+    const cancel = (job) => () => {
+      jobs.splice(jobs.indexOf(job), 1)
+      $.ui.invalidate('ui.render')
+    }
+
     // Gli errori si vedono solo sulla mail a cui appartengono; Riprova rilancia l'ultimo di quella mail
     const mine = (j) => current && j.mail.threadId === current.mail.threadId
     const failed = jobs.findLast((j) => j.status === 'errore' && mine(j))
+    const waiting = jobs.findLast((j) => j.status === 'attesa' && mine(j))
     const retry = () => {
       if (!failed) return
       const idx = flat().findIndex((x) => x.mail.threadId === failed.mail.threadId)
@@ -680,6 +812,30 @@ export function register(on) {
       }
     }
 
+    // La proposta di etichetta: i bottoni con quelle suggerite, o con quelle trovate dalla ricerca scritta
+    const proposal = []
+    if (waiting) {
+      const options = waiting.options ?? waiting.proposals
+      const hotkeys = waiting.options ? ['1', '2', '3', '4', '5', '6'] : ['s', '2', '3']
+      proposal.push(Text({ key: 'p-t', bold: true, children: [waiting.options ? 'Quale di queste?' : 'Etichetta proposta, va bene?'] }))
+      proposal.push(
+        Box({
+          key: 'p-b',
+          flexDirection: 'row',
+          children: [
+            ...options.flatMap((l, i) => [
+              Button({ key: 'p-' + l.id, label: (i === 0 && !waiting.options ? 'Sì: ' : '') + l.name, hotkey: hotkeys[i], variant: i === 0 ? 'primary' : undefined, onPress: () => choose(waiting, l) }),
+              Text({ key: 'p-s' + i, children: [' '] }),
+            ]),
+            Button({ key: 'p-annulla', label: 'Annulla', hotkey: 'a', onPress: cancel(waiting) }),
+          ],
+        }),
+      )
+      proposal.push(Input({ key: 'p-altra', label: 'Altra etichetta: ', placeholder: 'scrivi un nome, anche una parte (es. AI news)', submitLabel: 'cerca', onSubmit: typed(waiting) }))
+      if (waiting.hint) proposal.push(Text({ key: 'p-h', color: 'red', children: [waiting.hint] }))
+      proposal.push(rule)
+    }
+
     const errors = boxes.filter((box) => box.error)
     return Box({
       flexDirection: 'column',
@@ -690,19 +846,20 @@ export function register(on) {
         ...list,
         rule,
         ...jobs
-          .filter((j) => (j.status === 'corso') || (j.status === 'fatto' && Date.now() - j.doneAt < DONE_VISIBLE_MS) || (j.status === 'errore' && mine(j)))
+          .filter((j) => (j.status === 'corso') || (j.status === 'attesa' && mine(j)) || (j.status === 'fatto' && Date.now() - j.doneAt < DONE_VISIBLE_MS) || (j.status === 'errore' && mine(j)))
           .slice(-4)
           .map((j, i) =>
             Text({
               key: 'job-' + i,
-              color: j.status === 'errore' ? 'red' : j.status === 'fatto' ? 'green' : undefined,
+              color: j.status === 'errore' ? 'red' : j.status === 'fatto' ? 'green' : j.status === 'attesa' ? 'yellow' : undefined,
               dimColor: j.status === 'corso',
               children: [
-                (j.status === 'corso' ? SPIN[Math.floor(Date.now() / 120) % SPIN.length] : j.status === 'fatto' ? '✓' : '✗') + ' ' + j.label +
+                (j.status === 'corso' ? SPIN[Math.floor(Date.now() / 120) % SPIN.length] : j.status === 'fatto' ? '✓' : j.status === 'attesa' ? '?' : '✗') + ' ' + j.label +
                   (j.note ? ' · ' + j.note : '') + (j.status === 'errore' ? '  (premi y per riprovare)' : ''),
               ],
             }),
           ),
+        ...proposal,
         Box({
           flexDirection: 'row',
           children: [
