@@ -66,6 +66,10 @@ let boxes = []
 let cursor = 0
 let outcome = ''
 
+// I lavori in background: ogni azione parte come subagent e riferisce qui, senza riempire la chat
+// { id, label, status: 'corso' | 'fatto' | 'errore', note, box, mail, archived }
+const jobs = []
+
 // I testi già letti, per thread: undefined = non ancora chiesto, 'carico' = in arrivo
 const bodies = new Map()
 
@@ -214,7 +218,7 @@ export function buildPrompt(action, account, mail, text = '') {
     'altrimenti domani alle 09:00. Nel corpo della pagina metti una riga con il link alla mail (' + (mail.url ?? 'senza link') + ') e due righe di contesto. ' +
     'Poi archivia il thread con unlabel_thread togliendo INBOX.'
   const parts = { bozza: [draft], label: [label], misto: [draft, label], task: [task] }[action]
-  return ['Gestione posta.', mailLine, read, ...parts, 'Chiudi con una riga di esito.'].join('\n')
+  return ['Gestione posta.', mailLine, read, ...parts, 'Lavori in background: nessuna domanda e nessun testo lungo. Chiudi con una sola riga di esito (massimo 120 caratteri).'].join('\n')
 }
 
 // Le azioni dei bottoni: cosa fanno alla mail dopo l'invio (archiviata = esce dall'elenco)
@@ -260,6 +264,15 @@ async function loadBody($, item) {
   $.ui.invalidate('ui.render')
 }
 
+// Un lavoro fallito: la mail archiviata torna in elenco e l'errore si vede nel pannello
+function failJob($, job, note) {
+  job.status = 'errore'
+  job.note = clip(note, 160)
+  if (job.archived && !job.box.mails.includes(job.mail)) job.box.mails.unshift(job.mail)
+  $.ui.toast('posta: ' + job.label + ' non riuscito')
+  $.ui.invalidate('ui.render')
+}
+
 // Apre il pannello (carica la inbox) o lo chiude; risponde con la riga di esito
 async function setOpen($, want) {
   enabled = want
@@ -281,7 +294,14 @@ export function register(on) {
       const saved = await $.store.get('accounts')
       if (Array.isArray(saved) && saved.length) accounts = saved
     } catch {}
-    await $.command.register({ name: 'posta', description: 'Apre o chiude la inbox con i bottoni Bozza, Label e Task', argumentHint: '[on|off|aggiorna]', immediate: true })
+    const spec = { name: 'posta', description: 'Apre o chiude la inbox con i bottoni Bozza, Label e Task', argumentHint: '[on|off|aggiorna]', immediate: true }
+    await $.command.register(spec)
+    // Nelle chat nuove l'elenco dei comandi può essere già chiuso a questo punto: si ripete dopo poco
+    for (const ms of [1500, 5000]) {
+      $.clock.after(ms, () => {
+        void $.command.register(spec).catch(() => {})
+      })
+    }
     return next(e)
   })
 
@@ -301,6 +321,22 @@ export function register(on) {
       // Se il pannello non si apre il prompt non deve restare bloccato
       return { drop: 'posta: ' + clip(err?.message ?? err, 200) }
     }
+  })
+
+  // Il subagent ha finito: l'esito va nel pannello, non nella chat
+  on('turn.complete', ($, e, next) => {
+    const job = e.agentId ? jobs.find((j) => j.id === e.agentId) : null
+    if (job) {
+      if (e.reason === 'answer') {
+        job.status = 'fatto'
+        job.note = clip(e.answer, 160)
+        $.ui.toast('posta: ' + job.label + ' fatto')
+        $.ui.invalidate('ui.render')
+      } else {
+        failJob($, job, 'interrotto (' + e.reason + ')')
+      }
+    }
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -325,19 +361,32 @@ export function register(on) {
       $.ui.invalidate('ui.render')
     }
 
-    // Il bottone toglie la mail dall'elenco se l'azione la archivia e invia il prompt come se l'avessi scritto tu
-    const act = (action) => () => {
+    // Il bottone avvia un subagent in background e toglie la mail dall'elenco se l'azione la archivia;
+    // l'esito compare nel pannello e in un avviso, la chat resta pulita
+    const act = (action) => async () => {
       if (!current) return
       const { account } = current.box
-      const mail = current.mail
-      outcome = action.label + ' · ' + clip(mail.subject, 50)
+      const { box, mail } = current
+      const job = { id: null, label: action.label + ' · ' + clip(mail.subject, 40), status: 'corso', note: '', box, mail, archived: action.archives }
+      jobs.push(job)
       if (action.archives) {
-        current.box.mails = current.box.mails.filter((m) => m !== mail)
+        box.mails = box.mails.filter((m) => m !== mail)
         cursor = Math.min(cursor, Math.max(0, flat().length - 1))
         void loadBody($, flat()[cursor])
       }
       $.ui.invalidate('ui.render')
-      return $.prompt.submit({ text: buildPrompt(action.key, account, mail, threadText(bodies.get(mail.threadId))), asUser: true })
+      try {
+        const res = await $.agent.spawn({
+          prompt: buildPrompt(action.key, account, mail, threadText(bodies.get(mail.threadId))),
+          description: 'posta: ' + action.label,
+          model: action.key === 'bozza' || action.key === 'misto' ? undefined : 'haiku',
+        })
+        if (res.deny) failJob($, job, String(res.deny))
+        else job.id = res.agentId
+      } catch (err) {
+        failJob($, job, String(err?.message ?? err))
+      }
+      $.ui.invalidate('ui.render')
     }
 
     // La lista: una finestra di poche righe che scorre con la selezione, con l'intestazione di ogni account
@@ -392,7 +441,14 @@ export function register(on) {
         rule,
         ...list,
         rule,
-        outcome ? Text({ key: 'esito', dimColor: true, children: ['Inviato: ' + outcome] }) : null,
+        ...jobs.slice(-4).map((j, i) =>
+          Text({
+            key: 'job-' + i,
+            color: j.status === 'errore' ? 'red' : undefined,
+            dimColor: j.status === 'fatto',
+            children: [(j.status === 'corso' ? '⏳ ' : j.status === 'fatto' ? '✓ ' : '✗ ') + j.label + (j.note ? ' · ' + j.note : '')],
+          }),
+        ),
         Box({
           flexDirection: 'row',
           children: [

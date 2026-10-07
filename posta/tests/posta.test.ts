@@ -14,6 +14,7 @@ const closed: string[] = []
 function engine(on: (event: any, hook: any) => void) {
   closed.length = 0
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.toast', () => ({ value: undefined }))
   on('ui.close', (_$: unknown, e: { id: string }) => {
     closed.push(e.id)
     return { value: undefined }
@@ -59,9 +60,10 @@ test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, 
   const sent: string[] = []
   on('mcp.call', () => ({ value: REPLY }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
-  on('prompt.submit', async (_$, e) => {
-    sent.push(e.text)
-    return { text: e.text }
+  const spawned: string[] = []
+  on('agent.spawn', (_$: unknown, e: { prompt: string }) => {
+    spawned.push(e.prompt)
+    return { model: 'sonnet', agentId: 'a1' }
   })
   const opened = await $.command.run({ command: 'posta' })
   expect(opened.text).toContain('2 mail')
@@ -73,8 +75,8 @@ test('/posta apre la inbox e Label invia il prompt e toglie la mail', async ($, 
   }
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await ui.press({ key: 'label' })
-  expect(sent.at(-1)).toContain('thread t1')
-  expect(sent.at(-1)).toContain('LABEL')
+  expect(spawned.at(-1)).toContain('thread t1')
+  expect(spawned.at(-1)).toContain('LABEL')
   await ui.unmount()
   const closed = await $.command.run({ command: 'posta', args: 'off' })
   expect(closed.text).toContain('chiusa')
@@ -107,9 +109,9 @@ test('giù scorre la selezione oltre la finestra e Chiudi nasconde i bottoni', a
   const many = { threads: Array.from({ length: 12 }, (_, i) => ({ id: 't' + i, viewUrl: 'u', messages: [{ id: 'm' + i, sender: 'a' + i + '@x.it', subject: 'Oggetto ' + i, date: '2026-10-06T12:00:00Z', snippet: 's' }] })) }
   on('mcp.call', () => ({ value: { content: [{ type: 'text', text: JSON.stringify(many) }], isError: false } }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
-  on('prompt.submit', async (_$, e) => {
-    sent.push(e.text)
-    return { text: e.text }
+  on('agent.spawn', (_$: unknown, e: { prompt: string }) => {
+    sent.push(e.prompt)
+    return { model: 'sonnet', agentId: 'a2' }
   })
   await $.command.run({ command: 'posta', args: 'aggiorna' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
