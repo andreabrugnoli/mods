@@ -170,9 +170,10 @@ function parseGit(stdout) {
 // Rilegge lo stato; in caso di errore la banda torna ai bottoni che passano dal modello
 async function refreshGit($) {
   try {
-    const { exitCode, stdout, stderr } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'])
+    // LC_ALL=C: git risponde nella lingua del sistema ("non è un repository Git"), il controllo vuole l'inglese
+    const { exitCode, stdout, stderr } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'], { env: { LC_ALL: 'C' } })
     git = exitCode === 0 ? parseGit(stdout) : null
-    noRepo = exitCode !== 0 && /not a git repository/i.test(stderr ?? '')
+    noRepo = exitCode !== 0 && /not a git repository|non è un repository git/i.test(stderr ?? '')
   } catch {
     git = null
     noRepo = false
