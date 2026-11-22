@@ -1,5 +1,9 @@
-// Il testo che chiude una proposta: una domanda, o una formula tipica di richiesta di conferma
-const PROPOSAL = /(\?\s*[)"»]?\s*$)|(procedo|procediamo|vuoi che|ti va( bene)?|confermi|lo faccio|vado avanti|dimmi se)/i
+// Formule tipiche di richiesta di conferma ("dimmi se" no: chiede un'informazione, non un via libera)
+const FORMULA = /(procedo|procediamo|vuoi che|ti va( bene)?|confermi|lo faccio|vado avanti)/i
+// Una domanda che chiede un dato (dove, quale, come...) non si risolve con Sì o No
+const OPEN_QUESTION = /^\W*(dove|quando|quale|quali|quanto|quanti|quante|come|perch[eé]|cosa|che cosa|chi|con che|in che|a che)\b/i
+// Quante delle ultime frasi cercano una formula di conferma
+const TAIL = 2
 
 // La proposta in attesa di risposta: { text } finché non arriva un prompt
 let proposal = null
@@ -14,7 +18,12 @@ function clip(text, n) {
 export function findProposal(answer) {
   const paragraphs = String(answer ?? '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
   const last = paragraphs[paragraphs.length - 1]
-  return last && PROPOSAL.test(last) ? last : null
+  if (!last) return null
+  const sentences = last.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean)
+  const end = sentences[sentences.length - 1] ?? ''
+  const closesWithQuestion = /\?\s*[)"»]?\s*$/.test(end) && !OPEN_QUESTION.test(end)
+  const hasFormula = sentences.slice(-TAIL).some((x) => FORMULA.test(x))
+  return closesWithQuestion || hasFormula ? last : null
 }
 
 // Il nuovo stato dopo un comando: "on" accende, "off" spegne, senza argomento alterna
