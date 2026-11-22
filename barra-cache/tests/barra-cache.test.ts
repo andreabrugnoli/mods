@@ -110,7 +110,7 @@ test('/cache risponde prima e dopo la prima richiesta', async ($, on) => {
 })
 
 // Dove git non è raggiungibile (le sessioni cloud non hanno $.process) la banda resta quella di prima
-test('senza git la banda mostra Commit e Handoff e nessuna riga della repo', async ($, on) => {
+test('senza git la banda mostra Commit e Nuova chat e nessuna riga della repo', async ($, on) => {
   on('turn.complete', () => ({ text: 'ok' }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
   await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })
@@ -373,7 +373,7 @@ test('oltre 200mila token compare l\'avviso e Claude legge il promemoria una vol
   expect(toasts[0]).toContain('205mila')
   await $.prompt.submit({ text: 'continua' })
   expect(contexts[0].join('\n')).toContain('Promemoria della mod barra-cache')
-  expect(contexts[0].join('\n')).toContain('Handoff')
+  expect(contexts[0].join('\n')).toContain('Nuova chat')
   // Il promemoria non torna al prompt successivo
   await $.prompt.submit({ text: 'ancora' })
   expect(contexts[1]).toHaveLength(0)
