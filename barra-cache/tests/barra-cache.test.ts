@@ -337,3 +337,69 @@ test('/barra spegne e riaccende la banda', async ($, on) => {
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: '🔥 cache calda ancora ' })).toBeDefined()
 })
+
+// Contesto in token assoluti, come lo riporta il motore
+async function measureTokens($, tokens: number) {
+  await $.session.measure({
+    context: { tokens, window: 1000000, percent: Math.round(tokens / 10000) },
+    rateLimits: [],
+    cost: { usd: 1 },
+    changed: ['context'],
+  })
+}
+
+function watchNudge(on) {
+  const toasts: string[] = []
+  const contexts: string[][] = []
+  on('session.measure', () => ({ changed: [] }))
+  on('ui.toast', (_$, e) => {
+    toasts.push(JSON.stringify(e))
+    return { value: undefined }
+  })
+  on('prompt.submit', async (_$, e) => {
+    contexts.push(e.context ?? [])
+    return { text: e.text }
+  })
+  return { toasts, contexts }
+}
+
+test('oltre 200mila token compare l\'avviso e Claude legge il promemoria una volta sola', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const { toasts, contexts } = watchNudge(on)
+  await measureTokens($, 190000)
+  expect(toasts).toHaveLength(0)
+  await measureTokens($, 205000)
+  expect(toasts).toHaveLength(1)
+  expect(toasts[0]).toContain('205mila')
+  await $.prompt.submit({ text: 'continua' })
+  expect(contexts[0].join('\n')).toContain('Promemoria della mod barra-cache')
+  expect(contexts[0].join('\n')).toContain('Handoff')
+  // Il promemoria non torna al prompt successivo
+  await $.prompt.submit({ text: 'ancora' })
+  expect(contexts[1]).toHaveLength(0)
+})
+
+test('l\'avviso torna ogni 50mila token e si riarma sotto la soglia', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const { toasts } = watchNudge(on)
+  await measureTokens($, 205000)
+  await measureTokens($, 230000)
+  await measureTokens($, 249000)
+  expect(toasts).toHaveLength(1)
+  await measureTokens($, 255000)
+  expect(toasts).toHaveLength(2)
+  // Dopo /clear il contesto riparte e l'avviso si riarma
+  await measureTokens($, 3000)
+  await measureTokens($, 201000)
+  expect(toasts).toHaveLength(3)
+})
+
+test('con la barra spenta non ci sono avvisi né promemoria', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const { toasts, contexts } = watchNudge(on)
+  await $.command.run({ command: 'barra', args: 'off' })
+  await measureTokens($, 300000)
+  await $.prompt.submit({ text: 'continua' })
+  expect(toasts).toHaveLength(0)
+  expect(contexts[0]).toHaveLength(0)
+})

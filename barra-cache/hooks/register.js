@@ -21,9 +21,15 @@ const CONTEXT_BAD = 80
 const COST_WARN = 0.5
 const CACHE_OK = 80
 const CACHE_BAD = 50
+// Avviso "conviene una chat nuova": scatta oltre questi token di contesto, poi ogni PASSO token in più
+const NEW_CHAT_AT = 200000
+const NEW_CHAT_STEP = 50000
 
 // Il contesto e il costo letti dal motore: { percent, tokens, window, usd }, null dove non rispondono
 let usage = null
+// I token del contesto all'ultimo avviso "chat nuova" (0 = nessuno) e se il promemoria per Claude è ancora da consegnare
+let nudgedAt = 0
+let nudgeNote = null
 // Il turno concluso: { usd, fresh, out }, dove "fresh" sono i token pagati interi (non letti dalla cache)
 let lastTurn = null
 // Il costo della sessione al termine del turno precedente, per sottrarlo
@@ -112,6 +118,41 @@ function applyMeasure(e) {
   usage = e.context.percent === undefined ? usage : { percent: e.context.percent, tokens: e.context.tokens ?? 0, window: e.context.window, usd: e.cost?.usd }
   if (e.cost && usage) usage.usd = e.cost.usd
   if (Array.isArray(e.rateLimits)) limits = e.rateLimits
+}
+
+// Il promemoria che Claude legge accanto al prompt quando il contesto è grande
+function nudgeText(tokens) {
+  return (
+    'Promemoria della mod barra-cache: la conversazione è a ' +
+    tokensIt(tokens) +
+    ' token (soglia ' +
+    tokensIt(NEW_CHAT_AT) +
+    '). A ogni messaggio il modello rilegge tutto il contesto, quindi ogni passo costa di più. ' +
+    'Rispondi prima alla richiesta dell\'utente; poi, se il lavoro può fermarsi senza danni, chiudi con una riga che consiglia di ripartire in una chat nuova e indica come: ' +
+    'il bottone Handoff (tasto n) o il comando /nuova, che salvano il riassunto in ~/.claude/handoffs/ e ripartono da lì. ' +
+    'Non scrivere tu il riassunto né un prompt da incollare, a meno che l\'utente lo chieda. ' +
+    'Se sei a metà di un\'operazione delicata, finiscila prima e dillo. ' +
+    'Se l\'utente preferisce continuare, va bene: il promemoria tornerà tra ' +
+    tokensIt(NEW_CHAT_STEP) +
+    ' token.'
+  )
+}
+
+// Controlla il contesto a ogni misura: oltre la soglia avvisa una volta, poi a gradini; sotto la soglia si riarma
+function checkNudge($) {
+  if (!enabled || !usage) return
+  const tokens = usage.tokens
+  if (tokens < NEW_CHAT_AT) {
+    nudgedAt = 0
+    nudgeNote = null
+    return
+  }
+  // Il contesto è sceso (compattazione): si riparte dal livello attuale
+  if (tokens < nudgedAt) nudgedAt = 0
+  if (nudgedAt && tokens < nudgedAt + NEW_CHAT_STEP) return
+  nudgedAt = tokens
+  nudgeNote = nudgeText(tokens)
+  $.ui.toast('Contesto a ' + tokensIt(tokens) + ' token: conviene ripartire. Premi n (Handoff) o scrivi /nuova')
 }
 
 // Chiude il turno: costo e token del turno appena finito, poi si riparte da zero
@@ -347,8 +388,17 @@ export function register(on) {
   // Il motore riporta contesto e costo quando si muovono: la banda li mostra
   on('session.measure', ($, e, next) => {
     applyMeasure(e)
+    checkNudge($)
     $.ui.invalidate('ui.render')
     return next(e)
+  })
+
+  // Claude legge il promemoria accanto al prossimo prompt dell'utente; non durante il passaggio a una chat nuova
+  on('prompt.submit', async ($, e, next) => {
+    const note = nudgeNote
+    nudgeNote = null
+    if (!note || handoffFile) return next(e)
+    return next({ ...e, context: [...(e.context ?? []), note] })
   })
 
   // Una richiesta al modello rinnova la cache: l'ora riparte dal suo risultato
