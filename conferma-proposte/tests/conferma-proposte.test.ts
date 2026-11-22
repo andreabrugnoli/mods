@@ -17,6 +17,13 @@ test('riconosce una proposta dall\'ultimo paragrafo', () => {
   expect(findProposal('')).toBeNull()
 })
 
+test('non scambia per proposte le richieste di informazioni', () => {
+  expect(findProposal('Fatto. Dimmi se nella prova hai visto il toast.')).toBeNull()
+  expect(findProposal('Ho letto la repo.\n\nDove stai usando la chat?')).toBeNull()
+  expect(findProposal('Dove la usi? Se vuoi, procedo con la fase 4')).toContain('procedo')
+  expect(findProposal('Ho letto la repo. Vuoi che apra la PR?')).toContain('PR')
+})
+
 test('a fine turno con una proposta compaiono i due bottoni, e Sì invia la risposta', async ($, on) => {
   const sent: string[] = []
   on('turn.complete', () => ({ text: 'ok' }))
