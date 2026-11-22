@@ -129,7 +129,7 @@ function nudgeText(tokens) {
     tokensIt(NEW_CHAT_AT) +
     '). A ogni messaggio il modello rilegge tutto il contesto, quindi ogni passo costa di più. ' +
     'Rispondi prima alla richiesta dell\'utente; poi, se il lavoro può fermarsi senza danni, chiudi con una riga che consiglia di ripartire in una chat nuova e indica come: ' +
-    'il bottone Handoff (tasto n) o il comando /nuova, che salvano il riassunto in ~/.claude/handoffs/ e ripartono da lì. ' +
+    'il bottone Nuova chat (tasto n) o il comando /nuova, che salvano il riassunto in ~/.claude/handoffs/ e ripartono da lì. ' +
     'Non scrivere tu il riassunto né un prompt da incollare, a meno che l\'utente lo chieda. ' +
     'Se sei a metà di un\'operazione delicata, finiscila prima e dillo. ' +
     'Se l\'utente preferisce continuare, va bene: il promemoria tornerà tra ' +
@@ -152,7 +152,7 @@ function checkNudge($) {
   if (nudgedAt && tokens < nudgedAt + NEW_CHAT_STEP) return
   nudgedAt = tokens
   nudgeNote = nudgeText(tokens)
-  $.ui.toast('Contesto a ' + tokensIt(tokens) + ' token: conviene ripartire. Premi n (Handoff) o scrivi /nuova')
+  $.ui.toast('Contesto a ' + tokensIt(tokens) + ' token: conviene ripartire. Premi n (Nuova chat) o scrivi /nuova')
 }
 
 // Chiude il turno: costo e token del turno appena finito, poi si riparte da zero
@@ -334,7 +334,7 @@ export function register(on) {
       { name: 'cache', description: 'Quanto resta della prompt cache' },
       { name: 'push', description: 'Pubblica i commit del branch corrente' },
       { name: 'nuova', description: 'Riassume e riparte da una chat pulita' },
-      { name: 'handoff', description: 'Riassume e riparte da una chat pulita (come il bottone Handoff)' },
+      { name: 'handoff', description: 'Riassume e riparte da una chat pulita (come il bottone Nuova chat)' },
     ]
     for (const spec of specs) await $.command.register(spec)
     void refreshGit($)
@@ -458,6 +458,7 @@ export function register(on) {
     const canPush = git !== null && git.changed === 0 && (git.ahead > 0 || !git.hasUpstream)
     const buttons = Box({
       flexDirection: 'row',
+      marginTop: 1,
       children: [
         noRepo && Button({ key: 'create-repo', label: 'Crea repo', hotkey: 'g', onPress: () => $.prompt.submit({ text: CREATE_REPO_PROMPT }) }),
         noRepo && gap,
@@ -467,7 +468,7 @@ export function register(on) {
         !noRepo && canPush && gap,
         Button({
           key: 'fresh',
-          label: 'Handoff',
+          label: 'Nuova chat',
           hotkey: 'n',
           onPress: () => startHandoff($),
         }),
