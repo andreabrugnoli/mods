@@ -403,3 +403,73 @@ test('con la barra spenta non ci sono avvisi né promemoria', async ($, on) => {
   expect(toasts).toHaveLength(0)
   expect(contexts[0]).toHaveLength(0)
 })
+
+// Il passaggio a una chat nuova: registra la domanda sul modello, i comandi e i prompt, e risponde alla domanda con `answer`
+function watchHandoff(on, answer?: string) {
+  const asked: string[] = []
+  const commands: string[] = []
+  const sent: string[] = []
+  on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
+    const q = e.questions[0]
+    asked.push(q.question + ' | ' + q.options.map((o) => o.label).join(', '))
+    if (answer === undefined) return { deny: 'chiusa' }
+    return { result: { questions: e.questions, answers: { [q.question]: answer } } }
+  })
+  on('command.run', (_$, e) => {
+    commands.push(e.command + (e.args ? ' ' + e.args : ''))
+    return { text: '' }
+  })
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: 'sessione-1' }))
+  on('prompt.submit', async (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: 'ok' }))
+  on('ui.toast', () => ({ value: undefined }))
+  return { asked, commands, sent }
+}
+
+async function finishTurn($) {
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' })
+  // La ripartenza non si attende dentro il turno: le si lascia il tempo di finire
+  for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0))
+}
+
+test('Nuova chat chiede il modello e riparte con quello scelto', async ($, on) => {
+  const { asked, commands, sent } = watchHandoff(on, 'Haiku 5.5')
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['altra mod'] }))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'fresh' })
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toContain('Ora usi claude-opus-5-5')
+  expect(asked[0]).toContain('Sonnet 5.5 (consigliato), Opus 5.5, Haiku 5.5, Resta sul modello attuale')
+  expect(sent[0]).toContain('~/.claude/handoffs/')
+  await finishTurn($)
+  expect(commands).toEqual(['clear', 'model haiku'])
+  expect(sent[1]).toContain('Riprendi il lavoro')
+})
+
+test('/nuova con un modello salta la domanda', async ($, on) => {
+  const { asked, commands, sent } = watchHandoff(on, 'Haiku 5.5')
+  await $.command.run({ command: 'nuova', args: 'opus' })
+  await finishTurn($)
+  expect(asked).toHaveLength(0)
+  expect(sent[0]).toContain('~/.claude/handoffs/')
+  await finishTurn($)
+  expect(commands).toContain('model opus')
+  expect(commands.indexOf('clear')).toBeLessThan(commands.indexOf('model opus'))
+})
+
+for (const [name, answer] of [['domanda chiusa', undefined], ['"Resta sul modello attuale"', 'Resta sul modello attuale']] as const) {
+  test(name + ': la chat riparte senza cambiare modello', async ($, on) => {
+    const { commands, sent } = watchHandoff(on, answer)
+    await $.command.run({ command: 'nuova' })
+    await finishTurn($)
+    expect(sent[0]).toContain('~/.claude/handoffs/')
+    await finishTurn($)
+    expect(commands).toContain('clear')
+    expect(commands.some((c) => c.startsWith('model'))).toBe(false)
+    expect(sent[1]).toContain('Riprendi il lavoro')
+  })
+}

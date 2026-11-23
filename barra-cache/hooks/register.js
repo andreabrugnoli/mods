@@ -247,16 +247,68 @@ function handoffPrompt(file) {
 
 // Un'azione chiesta da un comando: prompt.submit non si può chiamare dentro command.run, parte a fine turno
 let queued = null
+// Il modello indicato dopo /nuova (undefined = da chiedere, null = resta quello attuale)
+let queuedModel = undefined
 
 // Il file di passaggio per la sessione in corso, atteso dopo il riassunto
 let handoffFile = null
+// Il modello con cui riparte la chat nuova, passato a /model dopo /clear (null = resta quello attuale)
+let handoffModel = null
 
-// Avvia il passaggio a una nuova chat: il riassunto va in un file, il resto lo fa turn.complete
-async function startHandoff($) {
+// Le scelte offerte al passaggio a una chat nuova: l'etichetta mostrata e il nome passato a /model
+const MODEL_CHOICES = [
+  { label: 'Sonnet 5.5 (consigliato)', model: 'sonnet' },
+  { label: 'Opus 5.5', model: 'opus' },
+  { label: 'Haiku 5.5', model: 'haiku' },
+]
+const KEEP_MODEL = 'Resta sul modello attuale'
+// Le parole che, dopo /nuova o sotto "Altro", lasciano il modello com'è
+const KEEP_WORDS = ['stesso', 'attuale', 'resta', 'uguale', 'same']
+
+// Dalla risposta (etichetta, testo libero o argomento di /nuova) al nome per /model; null resta sul modello attuale
+function modelFrom(answer) {
+  const text = String(answer ?? '').trim()
+  if (!text || text === KEEP_MODEL || KEEP_WORDS.includes(text.toLowerCase())) return null
+  const choice = MODEL_CHOICES.find((c) => c.label === text)
+  return choice ? choice.model : text
+}
+
+// Chiede con quale modello ripartire; se la domanda viene chiusa o nessuno può rispondere, resta il modello attuale
+async function askModel($) {
+  let current = ''
+  try {
+    current = await $.session.model()
+  } catch {}
+  try {
+    const answer = await $.ui.ask((current ? 'Ora usi ' + current + ': con' : 'Con') + ' quale modello riparte la chat nuova?', {
+      header: 'Modello',
+      options: [...MODEL_CHOICES.map((c) => c.label), KEEP_MODEL],
+    })
+    return modelFrom(answer)
+  } catch {
+    return null
+  }
+}
+
+// Avvia il passaggio a una nuova chat: chiede il modello (se non è già indicato), poi il riassunto va in un file e il resto lo fa turn.complete
+async function startHandoff($, preset) {
+  if (handoffFile) return
+  const model = preset === undefined ? await askModel($) : preset
   const id = await $.session.id()
+  handoffModel = model
   handoffFile = '~/.claude/handoffs/' + id + '.md'
-  $.ui.toast('Riassunto in corso, poi la chat riparte pulita')
+  $.ui.toast('Riassunto in corso, poi la chat riparte pulita' + (model ? ' con ' + model : ''))
   await $.prompt.submit({ text: handoffPrompt(handoffFile) })
+}
+
+// Cambia il modello come /model e dice con quale si riparte
+async function switchModel($, model) {
+  try {
+    await $.command.run({ command: 'model', args: model })
+    $.ui.toast('Chat nuova con ' + (await $.session.model()))
+  } catch {
+    $.ui.toast('Cambio di modello non riuscito: scrivi /model ' + model)
+  }
 }
 
 // Fa scorrere la barra, una volta sola
@@ -303,9 +355,12 @@ async function runPush() {
   return { text: 'Push avviato.' }
 }
 
-async function runHandoff() {
+// /nuova senza argomento chiede il modello; /nuova haiku (o opus, sonnet, un id completo, "stesso") salta la domanda
+async function runHandoff($, e) {
+  const arg = (e?.args ?? '').trim()
   queued = 'nuova'
-  return { text: 'Passaggio avviato: riassunto, poi chat pulita.' }
+  queuedModel = arg ? modelFrom(arg) : undefined
+  return { text: 'Passaggio avviato: ' + (arg ? '' : 'scelta del modello, ') + 'riassunto, poi chat pulita.' }
 }
 
 export function register(on) {
@@ -333,8 +388,8 @@ export function register(on) {
       { name: 'barra', description: 'Accende o spegne la barra sopra il prompt', argumentHint: '[on|off]', immediate: true },
       { name: 'cache', description: 'Quanto resta della prompt cache' },
       { name: 'push', description: 'Pubblica i commit del branch corrente' },
-      { name: 'nuova', description: 'Riassume e riparte da una chat pulita' },
-      { name: 'handoff', description: 'Riassume e riparte da una chat pulita (come il bottone Nuova chat)' },
+      { name: 'nuova', description: 'Chiede il modello, riassume e riparte da una chat pulita', argumentHint: '[sonnet|opus|haiku|stesso]' },
+      { name: 'handoff', description: 'Chiede il modello, riassume e riparte da una chat pulita (come il bottone Nuova chat)', argumentHint: '[sonnet|opus|haiku|stesso]' },
     ]
     for (const spec of specs) await $.command.register(spec)
     void refreshGit($)
@@ -367,10 +422,13 @@ export function register(on) {
     }
     if (!e.agentId && handoffFile) {
       const file = handoffFile
+      const model = handoffModel
       handoffFile = null
+      handoffModel = null
       void (async () => {
         try {
           await $.command.run({ command: 'clear' })
+          if (model) await switchModel($, model)
           await $.prompt.submit({ text: 'Riprendi il lavoro dal punto in cui eravamo: leggi ' + file + ' e continua da lì. Conferma in una riga cosa hai capito, poi procedi.' })
         } catch {
           $.ui.toast('Riassunto in ' + file + ': lancia /clear e fallo leggere')
@@ -380,7 +438,9 @@ export function register(on) {
     if (!e.agentId && queued) {
       const action = queued
       queued = null
-      void (action === 'push' ? pushNow($) : startHandoff($))
+      const model = queuedModel
+      queuedModel = undefined
+      void (action === 'push' ? pushNow($) : startHandoff($, model))
     }
     return next(e)
   })
